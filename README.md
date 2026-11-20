@@ -38,6 +38,10 @@ Right-clicking on the left file list opens the context menu for file and image m
 * **Delete File from Image (`Del`):** Deletes the selected file from the opened `.d64` or `.t64` image after confirmation and frees its blocks.
 * **Create Empty D64 / T64:** In a PC folder, creates a new empty disk or tape image with a custom label (and Disk ID for D64).
 
+### Preview Pane Clipboard Support
+* **Text Views (`Basic`, `Asm`, `HEX`, `Text`):** Right-click inside the text preview to select and copy source code or dumps to the clipboard.
+* **Graphical Views (`Image`, `Font`):** Right-click on the rendered image (or click it and press `Ctrl+C`) to copy it to the clipboard at native resolution (`Copy Image`) or crisp 2× nearest-neighbor scaling (`Copy Image (2x)`).
+
 ---
 
 ## 3. View Mode Buttons and Special Controls
@@ -53,6 +57,7 @@ The toolbar above the right-hand preview pane lets you override automatic detect
 | **Text** | Text view (`SEQ`, `USR`, and numbered record-by-record view for `REL` files). |
 | **Image** | Renders Plus/4 graphics screens (320×200). |
 | **Font** | Displays custom character sets (256 8×8 characters) in a 16×16 grid. |
+| **Pal: Auto / Bott / Mult / Raw** | Selects the background/border palette source in Image view (auto-detect, classic Botticelli `$1BE8/$1BE9`, nibble-swapped `MULT`, or raw defaults). |
 | **Color / HiRes** | Toggles between Color (Multicolor) and high-resolution monochrome (HiRes) modes in Image view. |
 | **◄ Font / Font ►** | Shifts the starting byte offset by ±1 byte in Font view for files with non-standard headers. |
 
@@ -82,7 +87,7 @@ To keep browsing responsive, **HEX** view displays the first 1024 bytes by defau
 | **`Backspace`** | Go up to the parent folder or exit the virtual image |
 | **`←` / `→`** | Cycle through preview modes (`Auto`, `HEX`, `Basic`, `Asm`, `Text`, `Image`, `Font`) |
 | **`Space`** | Reset to automatic (`Auto`) preview mode |
-| **`Ctrl+C`** | Copy selected Commodore file to clipboard |
+| **`Ctrl+C`** | Copy selected Commodore file (or preview image when focused) to clipboard |
 | **`Ctrl+V`** | Paste Commodore file from clipboard (to a PC folder or virtual image) |
 | **`F2`** | Rename selected file |
 | **`Del`** | Delete selected file from D64/T64 image |
@@ -95,4 +100,3 @@ To keep browsing responsive, **HEX** view displays the first 1024 bytes by defau
 ---
 
 * **Source Code & Download:** [https://github.com/bunnyhu/Plus4Commander](https://github.com/bunnyhu/Plus4Commander)
-```[cite: 10]

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Text;
 using System.IO;
 using System.Linq;
@@ -45,6 +46,7 @@ namespace Plus4Commander
         private string forcedViewMode = "AUTO";
         private int fontByteShift = 0;
         private bool isMulticolorMode = true;
+        private ImagePaletteMode imagePaletteMode = ImagePaletteMode.Auto;
         private bool showFullPreviewContent = false;
 
         private readonly Color D64BackColor = Color.FromArgb(62, 49, 162);
@@ -63,6 +65,10 @@ namespace Plus4Commander
         private ToolStripSeparator miSepCreateImage = null!;
         private ToolStripMenuItem miNewD64 = null!;
         private ToolStripMenuItem miNewT64 = null!;
+
+        private ContextMenuStrip ctxPreviewImageMenu = null!;
+        private ToolStripMenuItem miCopyPreviewImage1x = null!;
+        private ToolStripMenuItem miCopyPreviewImage2x = null!;
 
         private enum ListItemKind
         {
@@ -100,6 +106,7 @@ namespace Plus4Commander
             }
             LoadEmbeddedCbmFont();
             InitializeFileListContextMenu();
+            InitializePreviewImageContextMenu();
             BindEvents();
             UpdateActiveViewButtonHighlight();
 
@@ -110,6 +117,70 @@ namespace Plus4Commander
                 : defaultPath;
 
             LoadPcDirectory(currentPcPath);
+        }
+
+        private void InitializePreviewImageContextMenu()
+        {
+            ctxPreviewImageMenu = new ContextMenuStrip();
+
+            miCopyPreviewImage1x = new ToolStripMenuItem("Copy Image (1:1 size)", icoCopy, (s, e) => CopyPreviewImageToClipboard(1))
+            {
+                ShortcutKeyDisplayString = "Ctrl+C"
+            };
+
+            miCopyPreviewImage2x = new ToolStripMenuItem("Copy Image (2x size)", icoCopy, (s, e) => CopyPreviewImageToClipboard(2));
+
+            ctxPreviewImageMenu.Items.AddRange(new ToolStripItem[]
+            {
+                miCopyPreviewImage1x,
+                miCopyPreviewImage2x
+            });
+
+            ctxPreviewImageMenu.Opening += (s, e) =>
+            {
+                bool hasImage = pbView.Visible && pbView.Image != null;
+                miCopyPreviewImage1x.Enabled = hasImage;
+                miCopyPreviewImage2x.Enabled = hasImage;
+            };
+
+            pbView.ContextMenuStrip = ctxPreviewImageMenu;
+            pbView.MouseDown += (s, e) => pbView.Focus();
+        }
+
+        private void CopyPreviewImageToClipboard(int scale = 1)
+        {
+            if (!pbView.Visible || pbView.Image == null) return;
+
+            try
+            {
+                Image src = pbView.Image;
+                if (scale <= 1)
+                {
+                    using (Bitmap copy = new Bitmap(src))
+                    {
+                        Clipboard.SetImage(copy);
+                    }
+                }
+                else
+                {
+                    int w = src.Width * scale;
+                    int h = src.Height * scale;
+                    using (Bitmap scaled = new Bitmap(w, h))
+                    {
+                        using (Graphics g = Graphics.FromImage(scaled))
+                        {
+                            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+                            g.PixelOffsetMode = PixelOffsetMode.Half;
+                            g.DrawImage(src, new Rectangle(0, 0, w, h));
+                        }
+                        Clipboard.SetImage(scaled);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to copy image to clipboard:\r\n{ex.Message}", "Clipboard Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private bool IsSelectedPcFile(out string fileName)
@@ -216,7 +287,6 @@ namespace Plus4Commander
                 {
                     bool isT64 = Path.GetExtension(targetImagePath!).Equals(".T64", StringComparison.OrdinalIgnoreCase);
                     miRenameImageHeader.Text = isT64 ? "Rename T64 Tape Label..." : "Rename D64 Disk Label...";
-//                    miRenameImageHeader.Image = isT64 ? icoT64 : icoD64;
                 }
 
                 miDeleteVirtualFile.Visible = isInsideVirtualImage;
@@ -1021,6 +1091,25 @@ namespace Plus4Commander
             btnViewHex.Click += (s, e) => ChangeManualView("HEX");
             btnViewDisasm.Click += (s, e) => ChangeManualView("DISASM");
             btnViewSeq.Click += (s, e) => ChangeManualView("SEQ");
+
+            btnImagePalette.Click += (s, e) =>
+            {
+                imagePaletteMode = imagePaletteMode switch
+                {
+                    ImagePaletteMode.Auto => ImagePaletteMode.Botticelli,
+                    ImagePaletteMode.Botticelli => ImagePaletteMode.MultiB,
+                    ImagePaletteMode.MultiB => ImagePaletteMode.Raw,
+                    _ => ImagePaletteMode.Auto
+                };
+                btnImagePalette.Text = imagePaletteMode switch
+                {
+                    ImagePaletteMode.Botticelli => "Pal: Bott",
+                    ImagePaletteMode.MultiB => "Pal: Mult",
+                    ImagePaletteMode.Raw => "Pal: Raw",
+                    _ => "Pal: Auto"
+                };
+                RefreshFileContentView();
+            };
 
             btnToggleMulti.Click += (s, e) =>
             {
@@ -2106,7 +2195,7 @@ namespace Plus4Commander
 
                 case "IMAGE":
                     SetDefaultPreviewFont();
-                    pbView.Image = Plus4Parser.RenderScreenBitmap(file.RawData, isMulticolorMode);
+                    pbView.Image = Plus4Parser.RenderScreenBitmap(file.RawData, isMulticolorMode, imagePaletteMode);
                     pbView.Visible = true;
                     textBoxInfo.Visible = false;
                     break;
@@ -2366,6 +2455,11 @@ namespace Plus4Commander
 
             if (keyData == (Keys.Control | Keys.C))
             {
+                if (pbView.Focused && pbView.Visible && pbView.Image != null)
+                {
+                    CopyPreviewImageToClipboard(1);
+                    return true;
+                }
                 if (listBoxFiles.Focused && currentSelectedFile != null)
                 {
                     CopySelectedCbmFileToClipboard();

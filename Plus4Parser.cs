@@ -41,6 +41,14 @@ namespace Plus4Commander
         UnknownBinary
     }
 
+    public enum ImagePaletteMode
+    {
+        Auto,
+        Botticelli,
+        MultiB,
+        Raw
+    }
+
     public static class FileClassifier
     {
         public static Plus4ContentType Identify(DiskFileItem file)
@@ -48,11 +56,9 @@ namespace Plus4Commander
             if (file.Type.Contains("SEQ") || file.Type.Contains("USR") || file.Type.Contains("REL"))
                 return Plus4ContentType.SeqDatabaseOrText;
 
-            // Karakterkészlet (2048 - 2060 bájt)
             if (file.SizeInBytes >= 2048 && file.SizeInBytes <= 2060)
                 return Plus4ContentType.FontCharset;
 
-            // BASIC program ($1001 vagy grafikus módú $4001 kezdőcím)
             if (file.StartAddress == 0x1001 || file.StartAddress == 0x4001)
             {
                 if (file.RawData.Length > 4 && file.RawData[2] != 0 && file.RawData[3] < 0x80)
@@ -61,7 +67,6 @@ namespace Plus4Commander
                 }
             }
 
-            // TED grafikus képek vagy teljes memóriatükrök (pl. $1800 - $3F3E, vagy ~7KB - 12KB)
             if (file.SizeInBytes >= 7000 && file.SizeInBytes <= 12500)
             {
                 return Plus4ContentType.ScreenOrBitmap;
@@ -143,7 +148,6 @@ namespace Plus4Commander
             ("???", AddrMode.IMP), ("SBC", AddrMode.ABX), ("INC", AddrMode.ABX), ("???", AddrMode.IMP)
         };
 
-        // Teljes, javított Commodore Plus/4 BASIC V3.5 token tábla
         private static readonly Dictionary<byte, string> BasicTokens = new Dictionary<byte, string>()
         {
             { 0x80, "END" }, { 0x81, "FOR" }, { 0x82, "NEXT" }, { 0x83, "DATA" },
@@ -165,7 +169,6 @@ namespace Plus4Commander
             { 0xC0, "TAN" }, { 0xC1, "ATN" }, { 0xC2, "PEEK" }, { 0xC3, "LEN" },
             { 0xC4, "STR$" }, { 0xC5, "VAL" }, { 0xC6, "ASC" }, { 0xC7, "CHR$" },
             { 0xC8, "LEFT$" }, { 0xC9, "RIGHT$" }, { 0xCA, "MID$" }, { 0xCB, "GO" },
-            // Innentől indulnak a Plus/4 (BASIC V3.5) specifikus tokenek
             { 0xCC, "RGR" }, { 0xCD, "RCLR" }, { 0xCE, "RLUM" }, { 0xCF, "JOY" },
             { 0xD0, "RDOT" }, { 0xD1, "DEC" }, { 0xD2, "HEX$" }, { 0xD3, "ERR$" },
             { 0xD4, "INSTR" }, { 0xD5, "ELSE" }, { 0xD6, "RESUME" }, { 0xD7, "TRAP" },
@@ -178,7 +181,7 @@ namespace Plus4Commander
             { 0xF0, "DLOAD" }, { 0xF1, "HEADER" }, { 0xF2, "SCRATCH" }, { 0xF3, "COLLECT" },
             { 0xF4, "COPY" }, { 0xF5, "RENAME" }, { 0xF6, "BACKUP" }, { 0xF7, "DELETE" },
             { 0xF8, "RENUMBER" }, { 0xF9, "KEY" }, { 0xFA, "MONITOR" },
-            { 0xFF, "\u03C0" } // Commodore PI szimbólum
+            { 0xFF, "\u03C0" }
         };
 
         private static byte[] ReadAllBytesShared(string filePath)
@@ -238,19 +241,15 @@ namespace Plus4Commander
             };
         }
 
-        // =========================================================================
-        // ÜRES D64 / T64 KÉPFÁJL LÉTREHOZÁSA
-        // =========================================================================
-
         public static void CreateEmptyD64(string filePath, string diskName, string diskId = "01")
         {
-            const int d64Size = 174848; // 35 sáv, 683 szektor
+            const int d64Size = 174848;
             byte[] d64 = new byte[d64Size];
 
-            int bamOffset = GetD64Offset(18, 0); // 91392
-            d64[bamOffset + 0x00] = 18;   // Első directory track
-            d64[bamOffset + 0x01] = 1;    // Első directory sector
-            d64[bamOffset + 0x02] = 0x41; // DOS verzió 'A'
+            int bamOffset = GetD64Offset(18, 0);
+            d64[bamOffset + 0x00] = 18;
+            d64[bamOffset + 0x01] = 1;
+            d64[bamOffset + 0x02] = 0x41;
             d64[bamOffset + 0x03] = 0x00;
 
             for (int track = 1; track <= 35; track++)
@@ -260,9 +259,8 @@ namespace Plus4Commander
 
                 if (track == 18)
                 {
-                    // 18-as sáv: 0. (BAM) és 1. (első DIR) szektor foglalt
                     d64[entry + 0] = (byte)(sectors - 2);
-                    d64[entry + 1] = 0xFC; // bit 0 és 1 = 0 (foglalt)
+                    d64[entry + 1] = 0xFC;
                     d64[entry + 2] = 0xFF;
                     d64[entry + 3] = 0x07;
                 }
@@ -299,7 +297,6 @@ namespace Plus4Commander
             d64[bamOffset + 0xA9] = 0xA0;
             d64[bamOffset + 0xAA] = 0xA0;
 
-            // Első directory szektor (Track 18, Sector 1): lánc vége
             int dirOffset = GetD64Offset(18, 1);
             d64[dirOffset + 0x00] = 0x00;
             d64[dirOffset + 0x01] = 0xFF;
@@ -311,10 +308,6 @@ namespace Plus4Commander
         {
             SaveT64File(filePath, tapeName, new List<DiskFileItem>());
         }
-
-        // =========================================================================
-        // D64 TÖRLÉS ÉS HOZZÁADÁS (BAM KEZELÉSSEL)
-        // =========================================================================
 
         private static bool IsSectorFree(byte[] d64, int track, int sector)
         {
@@ -370,7 +363,6 @@ namespace Plus4Commander
 
         private static bool TryAllocateDataSector(byte[] d64, out byte outTrack, out byte outSector)
         {
-            // 1541-szerű allokáció: 17-től lefelé, majd 19-től felfelé (18-as sáv kihagyva)
             for (int t = 17; t >= 1; t--)
             {
                 int count = GetSectorsPerTrack(t);
@@ -468,7 +460,6 @@ namespace Plus4Commander
                             FreeSectorChain(d64, startTrack, startSector);
                         }
 
-                        // REL fájl esetén a Side-Sector lánc felszabadítása
                         if ((fileTypeRaw & 0x07) == 4)
                         {
                             byte ssTrack = d64[entryOffset + 21];
@@ -512,7 +503,6 @@ namespace Plus4Commander
             string targetName = (fileName ?? "UNNAMED").Trim().ToUpperInvariant();
             if (targetName.Length > 16) targetName = targetName.Substring(0, 16);
 
-            // 1. Meglévő azonos nevű fájl keresése (felülíráshoz)
             int bamOffset = 91392;
             byte curTrack = d64[bamOffset];
             byte curSector = d64[bamOffset + 1];
@@ -559,7 +549,6 @@ namespace Plus4Commander
                 curSector = d64[sectorOffset + 1];
             }
 
-            // 2. Szükséges szektorok számítása
             byte typeCode = GetFileTypeCode(fileType);
             bool isRel = (typeCode == 4);
             int effectiveRecLen = isRel ? Math.Clamp(recordLength > 0 ? recordLength : 32, 1, 254) : 0;
@@ -577,7 +566,6 @@ namespace Plus4Commander
                 throw new InvalidOperationException("Not enough free blocks on the D64 disk image.");
             }
 
-            // 3. Szabad directory bejegyzés keresése (vagy új directory szektor allokálása)
             int freeEntryOffset = -1;
             int lastDirSectorOffset = -1;
             curTrack = d64[bamOffset];
@@ -623,7 +611,6 @@ namespace Plus4Commander
                 freeEntryOffset = newDirOffset;
             }
 
-            // 4. Adatszektorok allokálása és megírása
             var dataSectors = new List<(byte Track, byte Sector)>(dataSectorsNeeded);
             for (int i = 0; i < dataSectorsNeeded; i++)
             {
@@ -659,7 +646,6 @@ namespace Plus4Commander
                 }
             }
 
-            // 5. REL fájl esetén Side-Sector lánc létrehozása
             byte firstSideTrack = 0;
             byte firstSideSector = 0;
             if (isRel)
@@ -696,17 +682,15 @@ namespace Plus4Commander
                         d64[ssOffset + 1] = (byte)(15 + (chunkCount * 2));
                     }
 
-                    d64[ssOffset + 2] = (byte)i; // Side-sector sorszám (0..5)
+                    d64[ssOffset + 2] = (byte)i;
                     d64[ssOffset + 3] = (byte)effectiveRecLen;
 
-                    // Összes side-sector T/S mutató ($04..$0F)
                     for (int k = 0; k < sideSectors.Count; k++)
                     {
                         d64[ssOffset + 4 + (k * 2)] = sideSectors[k].Track;
                         d64[ssOffset + 5 + (k * 2)] = sideSectors[k].Sector;
                     }
 
-                    // Adatszektorok T/S mutatói ($10..$FF)
                     for (int k = 0; k < chunkCount; k++)
                     {
                         d64[ssOffset + 16 + (k * 2)] = dataSectors[chunkStart + k].Track;
@@ -715,7 +699,6 @@ namespace Plus4Commander
                 }
             }
 
-            // 6. Directory bejegyzés kitöltése (az első 2 bájtot nem bántjuk, mert az a szektor lánc-mutatója a 0. slotnál!)
             for (int b = 2; b < 32; b++) d64[freeEntryOffset + b] = 0x00;
 
             d64[freeEntryOffset + 2] = (byte)(0x80 | typeCode);
@@ -737,10 +720,6 @@ namespace Plus4Commander
 
             File.WriteAllBytes(filePath, d64);
         }
-
-        // =========================================================================
-        // T64 TÖRLÉS, HOZZÁADÁS ÉS MENTÉS
-        // =========================================================================
 
         public static void DeleteFileFromT64(string filePath, int activeFileIndex)
         {
@@ -811,13 +790,12 @@ namespace Plus4Commander
 
             using (var ms = new MemoryStream())
             {
-                // 64 bájtos T64 fejléc
                 byte[] header = new byte[64];
                 byte[] sig = Encoding.ASCII.GetBytes("C64 tape image file");
                 Array.Copy(sig, 0, header, 0, sig.Length);
 
                 header[0x20] = 0x00;
-                header[0x21] = 0x01; // Verzió 1.0
+                header[0x21] = 0x01;
                 header[0x22] = (byte)(maxEntries & 0xFF);
                 header[0x23] = (byte)((maxEntries >> 8) & 0xFF);
                 header[0x24] = (byte)(usedEntries & 0xFF);
@@ -827,7 +805,6 @@ namespace Plus4Commander
                 Array.Copy(tapeNameBytes, 0, header, 0x28, 24);
                 ms.Write(header, 0, header.Length);
 
-                // Adatblokkok előkészítése és directory tábla megírása
                 byte[] dirTable = new byte[maxEntries * 32];
                 using (var dataStream = new MemoryStream())
                 {
@@ -856,7 +833,7 @@ namespace Plus4Commander
                         int endAddr = Math.Min(0xFFFF, startAddr + payload.Length);
                         byte typeCode = GetFileTypeCode(item.Type);
 
-                        dirTable[entryOffset + 0] = 0x01; // Normal tape file
+                        dirTable[entryOffset + 0] = 0x01;
                         dirTable[entryOffset + 1] = (byte)(0x80 | typeCode);
                         dirTable[entryOffset + 2] = (byte)(startAddr & 0xFF);
                         dirTable[entryOffset + 3] = (byte)((startAddr >> 8) & 0xFF);
@@ -872,7 +849,6 @@ namespace Plus4Commander
                             ? item.RawNameBytes
                             : EncodeCbmName(item.Name, 16, 0x20);
 
-                        // A0 kitöltés cseréje szóközre T64-ben
                         for (int k = 0; k < 16; k++)
                         {
                             dirTable[entryOffset + 16 + k] = (nameBytes[k] == 0xA0 || nameBytes[k] == 0x00)
@@ -893,41 +869,64 @@ namespace Plus4Commander
             }
         }
 
-        // =========================================================================
-        // GRAFIKA, DISASSEMBLER, OLVASÓK
-        // =========================================================================
+        private static readonly Color[,] TedPalette = BuildTedPalette();
+
+        private static Color[,] BuildTedPalette()
+        {
+            var table = new Color[16, 8];
+
+            // Calibrated against Multi Botticelli / YAPE PAL TED luma steps (Luma 0..7)
+            double[] lumaLevels = { 0.145, 0.215, 0.286, 0.369, 0.463, 0.569, 0.718, 0.929 };
+
+            double[] hueAngles =
+            {
+                0, 0,
+                104.0, // 2: Red
+                284.0, // 3: Cyan
+                54.0,  // 4: Purple
+                234.0, // 5: Green
+                348.0, // 6: Blue
+                168.0, // 7: Yellow
+                124.0, // 8: Orange
+                148.0, // 9: Brown
+                195.0, // 10: Yellow-Green
+                84.0,  // 11: Pink
+                264.0, // 12: Blue-Green
+                322.0, // 13: Light Blue
+                22.0,  // 14: Dark Blue
+                213.0  // 15: Light Green
+            };
+
+            const double saturation = 0.295;
+
+            for (int luma = 0; luma < 8; luma++)
+            {
+                table[0, luma] = Color.Black;
+
+                int gray = Math.Clamp((int)Math.Round(lumaLevels[luma] * 255.0), 0, 255);
+                table[1, luma] = Color.FromArgb(gray, gray, gray);
+
+                for (int hue = 2; hue < 16; hue++)
+                {
+                    double rad = hueAngles[hue] * Math.PI / 180.0;
+                    double y = lumaLevels[luma];
+                    double u = saturation * Math.Cos(rad);
+                    double v = saturation * Math.Sin(rad);
+
+                    int r = Math.Clamp((int)Math.Round((y + 1.140 * v) * 255.0), 0, 255);
+                    int g = Math.Clamp((int)Math.Round((y - 0.395 * u - 0.581 * v) * 255.0), 0, 255);
+                    int b = Math.Clamp((int)Math.Round((y + 2.032 * u) * 255.0), 0, 255);
+
+                    table[hue, luma] = Color.FromArgb(r, g, b);
+                }
+            }
+
+            return table;
+        }
 
         private static Color GetTedColor(int hue, int luma)
         {
-            hue &= 0x0F;
-            luma &= 0x07;
-            if (hue == 0) return Color.Black;
-
-            (double r, double g, double b) baseRgb = hue switch
-            {
-                1 => (1.0, 1.0, 1.0),
-                2 => (0.85, 0.2, 0.2),
-                3 => (0.2, 0.85, 0.85),
-                4 => (0.8, 0.25, 0.85),
-                5 => (0.2, 0.8, 0.3),
-                6 => (0.25, 0.3, 0.9),
-                7 => (0.9, 0.85, 0.2),
-                8 => (0.9, 0.5, 0.15),
-                9 => (0.65, 0.4, 0.15),
-                10 => (0.55, 0.75, 0.15),
-                11 => (0.9, 0.45, 0.65),
-                12 => (0.2, 0.85, 0.6),
-                13 => (0.35, 0.6, 0.95),
-                14 => (0.55, 0.35, 0.95),
-                15 => (0.4, 0.9, 0.35),
-                _ => (1.0, 1.0, 1.0)
-            };
-
-            double factor = 0.22 + (luma / 7.0) * 0.78;
-            int R = Math.Clamp((int)(baseRgb.r * 255 * factor), 0, 255);
-            int G = Math.Clamp((int)(baseRgb.g * 255 * factor), 0, 255);
-            int B = Math.Clamp((int)(baseRgb.b * 255 * factor), 0, 255);
-            return Color.FromArgb(R, G, B);
+            return TedPalette[hue & 0x0F, luma & 0x07];
         }
 
         private static Color GetTedColorFromRegisterByte(byte tedByte)
@@ -937,7 +936,7 @@ namespace Plus4Commander
             return GetTedColor(hue, luma);
         }
 
-        public static Bitmap RenderScreenBitmap(byte[] rawData, bool multicolor)
+        public static Bitmap RenderScreenBitmap(byte[] rawData, bool multicolor, ImagePaletteMode paletteMode = ImagePaletteMode.Auto)
         {
             int width = 320;
             int height = 200;
@@ -967,15 +966,21 @@ namespace Plus4Commander
             Color bg0 = Color.Black;
             Color bg1 = Color.Gray;
 
-            if (hasColorTables && rawData.Length > 1025)
+            if (hasColorTables && paletteMode != ImagePaletteMode.Raw)
             {
-                // Multi-Botticelli ("MULT" a $03FC..$03FF offszeten, utána $FF16 és $FF15 nibble-fordítva)
-                bool hasMultHeader = rawData[1020] == (byte)'M'
+                bool hasMultHeader = rawData.Length > 1025
+                                  && rawData[1020] == (byte)'M'
                                   && rawData[1021] == (byte)'U'
                                   && rawData[1022] == (byte)'L'
                                   && rawData[1023] == (byte)'T';
 
-                if (hasMultHeader)
+                bool useMultiB = paletteMode == ImagePaletteMode.MultiB
+                              || (paletteMode == ImagePaletteMode.Auto && hasMultHeader);
+
+                bool useBotticelli = paletteMode == ImagePaletteMode.Botticelli
+                                  || (paletteMode == ImagePaletteMode.Auto && !hasMultHeader && rawData.Length > 1003 && (rawData[1002] != 0 || rawData[1003] != 0));
+
+                if (useMultiB && rawData.Length > 1025)
                 {
                     byte ff16 = (byte)(((rawData[1024] & 0x0F) << 4) | (rawData[1024] >> 4));
                     byte ff15 = (byte)(((rawData[1025] & 0x0F) << 4) | (rawData[1025] >> 4));
@@ -983,9 +988,8 @@ namespace Plus4Commander
                     bg1 = GetTedColorFromRegisterByte(ff16);
                     bg0 = GetTedColorFromRegisterByte(ff15);
                 }
-                else if (rawData[1002] != 0 || rawData[1003] != 0)
+                else if (useBotticelli && rawData.Length > 1003)
                 {
-                    // Klasszikus Botticelli ($1BE8 = $FF15, $1BE9 = $FF16)
                     bg0 = GetTedColorFromRegisterByte(rawData[1002]);
                     bg1 = GetTedColorFromRegisterByte(rawData[1003]);
                 }
@@ -1184,7 +1188,7 @@ namespace Plus4Commander
         public static DiskHeaderInfo ReadD64Header(string filePath)
         {
             byte[] d64Data = ReadAllBytesShared(filePath);
-            int bamOffset = 91392; // Track 18, Sector 0
+            int bamOffset = 91392;
 
             var header = new DiskHeaderInfo
             {
@@ -1646,7 +1650,7 @@ namespace Plus4Commander
         public static void RenameD64Header(string filePath, string newDiskName, string? newDiskId = null)
         {
             byte[] d64 = ReadAllBytesShared(filePath);
-            int bamOffset = 91392; // Track 18, Sector 0
+            int bamOffset = 91392;
 
             if (d64.Length < bamOffset + 256)
             {

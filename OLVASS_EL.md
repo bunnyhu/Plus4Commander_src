@@ -38,6 +38,10 @@ A bal oldali fájllistán jobb egérgombbal kattintva elérhetők a fájl- és k
 * **Fájl törlése képfájlból (`Del`):** Megerősítés után törli a kijelölt fájlt a megnyitott `.d64` vagy `.t64` képfájlból, és felszabadítja a helyét.
 * **Üres D64 / T64 létrehozása:** PC mappában állva új, üres lemez- vagy szalagképfájl hozható létre tetszőleges címkével és (D64 esetén) Disk ID-val.
 
+### Előnézeti panel vágólapkezelés
+* **Szöveges nézetekben (`Basic`, `Asm`, `HEX`, `Text`):** A szöveges mezőn jobb egérgombbal kattintva kijelölhető és vágólapra másolható a forráskód vagy dump.
+* **Grafikus nézetekben (`Image`, `Font`):** A képre jobb egérgombbal kattintva (vagy rákattintás után `Ctrl+C`-vel) a renderelt kép vágólapra másolható eredeti (`Copy Image`) vagy 2×-es éles nagyítással (`Copy Image (2x)`).
+
 ---
 
 ## 3. Nézetválasztó gombok és speciális vezérlők
@@ -53,6 +57,7 @@ A jobb oldali előnézeti ablak feletti gombsorral bármikor felülbírálható 
 | **Text** | Szöveges megjelenítés (`SEQ`, `USR`, illetve `REL` fájloknál rekordonként sorszámozva). |
 | **Image** | Plus/4 grafikus képek (320×200) kirajzolása. |
 | **Font** | Egyedi karakterkészletek (256 darab 8×8-as karakter) megjelenítése 16×16-os rácsban. |
+| **Pal: Auto / Bott / Mult / Raw** | Palettaforrás választása kép nézetben (automatikus felismerés, klasszikus Botticelli `$1BE8/$1BE9`, nibble-fordított `MULT` vagy nyers alapértelmezett színek). |
 | **Color / HiRes** | Kép nézetben vált a színes (Multicolor) és a nagyfelbontású de monokróm (HiRes) mód között. |
 | **◄ Font / Font ►** | Karakterkészlet nézetben 1-1 bájttal eltolja a megjelenítés kezdőpontját, ha a fájl nem szabványos fejléccel rendelkezik. |
 
@@ -82,7 +87,7 @@ A gyors böngészés érdekében a **HEX** nézet alapból az első 1024 bájtot
 | **`Backspace`** | Visszalépés a szülő mappába vagy kilépés a képfájlból |
 | **`←` / `→`** | Váltás az előnézeti módok (`Auto`, `HEX`, `Basic`, `Asm`, `Text`, `Image`, `Font`) között |
 | **`Space`** | Visszaállás automatikus (`Auto`) előnézeti módra |
-| **`Ctrl+C`** | Kijelölt Commodore fájl másolása vágólapra |
+| **`Ctrl+C`** | Kijelölt Commodore fájl (vagy grafikus előnézeti kép) másolása vágólapra |
 | **`Ctrl+V`** | Vágólapon lévő Commodore fájl beillesztése (PC mappába vagy képfájlba) |
 | **`F2`** | Kijelölt fájl átnevezése |
 | **`Del`** | Kijelölt fájl törlése a D64/T64 képfájlból |

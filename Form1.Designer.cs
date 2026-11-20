@@ -29,6 +29,7 @@ namespace Plus4Commander
             lblTruncatedHint = new Label();
             btnShowAllContent = new Button();
             panelViewButtons = new Panel();
+            btnImagePalette = new Button();
             btnShiftPlus = new Button();
             btnShiftMinus = new Button();
             btnViewSeq = new Button();
@@ -262,6 +263,7 @@ namespace Plus4Commander
             // 
             // panelViewButtons
             // 
+            panelViewButtons.Controls.Add(btnImagePalette);
             panelViewButtons.Controls.Add(btnShiftPlus);
             panelViewButtons.Controls.Add(btnShiftMinus);
             panelViewButtons.Controls.Add(btnViewSeq);
@@ -278,6 +280,18 @@ namespace Plus4Commander
             panelViewButtons.Name = "panelViewButtons";
             panelViewButtons.Size = new Size(838, 40);
             panelViewButtons.TabIndex = 0;
+            // 
+            // btnImagePalette
+            // 
+            btnImagePalette.FlatStyle = FlatStyle.Flat;
+            btnImagePalette.Font = new Font("Segoe UI", 8.5F);
+            btnImagePalette.Location = new Point(496, 3);
+            btnImagePalette.Margin = new Padding(3, 4, 3, 4);
+            btnImagePalette.Name = "btnImagePalette";
+            btnImagePalette.Size = new Size(94, 30);
+            btnImagePalette.TabIndex = 10;
+            btnImagePalette.Text = "Pal: Auto";
+            btnImagePalette.UseVisualStyleBackColor = true;
             // 
             // btnShiftPlus
             // 
@@ -624,6 +638,7 @@ namespace Plus4Commander
         private System.Windows.Forms.Label lblTruncatedHint;
         private System.Windows.Forms.Button btnShowAllContent;
         private System.Windows.Forms.Panel panelViewButtons;
+        private System.Windows.Forms.Button btnImagePalette;
         private System.Windows.Forms.Button btnViewAuto;
         private System.Windows.Forms.Button btnViewBasic;
         private System.Windows.Forms.Button btnViewFont;
