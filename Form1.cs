@@ -109,6 +109,7 @@ namespace Plus4Commander
             InitializePreviewImageContextMenu();
             BindEvents();
             UpdateActiveViewButtonHighlight();
+            UpdateViewContextControlsVisibility("HEX");
 
             string defaultPath = Path.GetPathRoot(AppDomain.CurrentDomain.BaseDirectory) ?? @"C:\";
             string savedPath = LoadLastPathFromRegistry();
@@ -117,6 +118,18 @@ namespace Plus4Commander
                 : defaultPath;
 
             LoadPcDirectory(currentPcPath);
+        }
+
+        private void UpdateViewContextControlsVisibility(string activeView)
+        {
+            bool isImageView = activeView == "IMAGE";
+            bool isFontView = activeView == "FONT";
+
+            btnImagePalette.Visible = isImageView;
+            btnToggleMulti.Visible = isImageView;
+
+            btnShiftMinus.Visible = isFontView;
+            btnShiftPlus.Visible = isFontView;
         }
 
         private void InitializePreviewImageContextMenu()
@@ -1759,6 +1772,7 @@ namespace Plus4Commander
         {
             SetDefaultPreviewFont();
             panelLoadMoreBar.Visible = false;
+            UpdateViewContextControlsVisibility("HEX");
             currentSelectedFile = null;
             currentDetectedType = Plus4ContentType.UnknownBinary;
             currentSelectedPcFilePath = string.Empty;
@@ -2166,6 +2180,8 @@ namespace Plus4Commander
                 else if (detectedType == Plus4ContentType.MachineCode) activeView = "DISASM";
                 else activeView = "HEX";
             }
+
+            UpdateViewContextControlsVisibility(activeView);
 
             StringBuilder contentSb = new StringBuilder();
             switch (activeView)

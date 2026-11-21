@@ -285,6 +285,7 @@ namespace Plus4Commander
             // 
             btnImagePalette.FlatStyle = FlatStyle.Flat;
             btnImagePalette.Font = new Font("Segoe UI", 8.5F);
+            btnImagePalette.ImageAlign = ContentAlignment.MiddleLeft;
             btnImagePalette.Location = new Point(496, 3);
             btnImagePalette.Margin = new Padding(3, 4, 3, 4);
             btnImagePalette.Name = "btnImagePalette";

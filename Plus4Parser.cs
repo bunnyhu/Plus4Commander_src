@@ -869,61 +869,252 @@ namespace Plus4Commander
             }
         }
 
+
+        private static readonly double[] YapeLumaVoltages = { 2.00, 2.40, 2.55, 2.70, 2.90, 3.30, 3.60, 4.10, 4.95 };
+
+        private static readonly int[] YapeHueAngles =
+        {
+            -2, -1,
+            103, // 2: Red
+            283, // 3: Cyan
+            53,  // 4: Magenta / Purple
+            241, // 5: Green
+            347, // 6: Blue
+            167, // 7: Yellow
+            123, // 8: Orange
+            148, // 9: Brown
+            195, // 10: Yellow-Green
+            83,  // 11: Pink
+            265, // 12: Blue-Green
+            323, // 13: Light Blue
+            0,   // 14: Dark Blue (YAPE note: 23 original, but wrong -> 0)
+            213  // 15: Light Green
+        };
+
         private static readonly Color[,] TedPalette = BuildTedPalette();
 
         private static Color[,] BuildTedPalette()
         {
+            // [hue 0..15, luma 0..7] — a képen LUM 0 az alsó sor, LUM 7 a felső sor
             var table = new Color[16, 8];
 
-            // Calibrated against Multi Botticelli / YAPE PAL TED luma steps (Luma 0..7)
-            double[] lumaLevels = { 0.145, 0.215, 0.286, 0.369, 0.463, 0.569, 0.718, 0.929 };
+            // 0: BLACK
+            for (int luma = 0; luma < 8; luma++)
+                table[0, luma] = Color.FromArgb(0, 0, 0);
 
-            double[] hueAngles =
+            // 1: WHITE (szürke/fehér oszlop, LUM 0 -> LUM 7) OK
+            Color[] whiteCol =
             {
-                0, 0,
-                104.0, // 2: Red
-                284.0, // 3: Cyan
-                54.0,  // 4: Purple
-                234.0, // 5: Green
-                348.0, // 6: Blue
-                168.0, // 7: Yellow
-                124.0, // 8: Orange
-                148.0, // 9: Brown
-                195.0, // 10: Yellow-Green
-                84.0,  // 11: Pink
-                264.0, // 12: Blue-Green
-                322.0, // 13: Light Blue
-                22.0,  // 14: Dark Blue
-                213.0  // 15: Light Green
+                Color.FromArgb(34, 34, 34),   // LUM 0
+                Color.FromArgb(47, 47, 47),   // LUM 1
+                Color.FromArgb(60, 60, 60),   // LUM 2
+                Color.FromArgb(77, 77, 77),   // LUM 3
+                Color.FromArgb(110, 110, 110), // LUM 4
+                Color.FromArgb(136, 136, 136), // LUM 5
+                Color.FromArgb(178, 178, 178), // LUM 6
+                Color.FromArgb(238, 238, 238),  // LUM 7
             };
 
-            const double saturation = 0.295;
-
-            for (int luma = 0; luma < 8; luma++)
+            // 2: RED OK
+            Color[] redCol =
             {
-                table[0, luma] = Color.Black;
 
-                int gray = Math.Clamp((int)Math.Round(lumaLevels[luma] * 255.0), 0, 255);
-                table[1, luma] = Color.FromArgb(gray, gray, gray);
+                Color.FromArgb(91, 10, 11),
+                Color.FromArgb(103, 22, 23),
+                Color.FromArgb(116, 35, 36),
+                Color.FromArgb(133, 52, 53),
+                Color.FromArgb(167, 86, 87),
+                Color.FromArgb(193, 112, 113),
+                Color.FromArgb(235, 154, 155),
+                Color.FromArgb(255, 214, 215),
+            };
 
-                for (int hue = 2; hue < 16; hue++)
+            // 3: CYAN OK
+            Color[] cyanCol =
+            {
+                Color.FromArgb(0, 58, 57),
+                Color.FromArgb(0, 71, 70),
+                Color.FromArgb(3, 84, 83),
+                Color.FromArgb(20, 101, 100),
+                Color.FromArgb(54, 135, 134),
+                Color.FromArgb(79, 160, 159),
+                Color.FromArgb(122, 203, 202),
+                Color.FromArgb(181, 255, 255)
+            };
+
+            // 4: PURPLE OK
+            Color[] purpleCol =
+            {
+                Color.FromArgb(80, 0, 96),
+                Color.FromArgb(93, 11, 109),
+                Color.FromArgb(106, 24, 122),
+                Color.FromArgb(123, 41, 139),
+                Color.FromArgb(157, 75, 173),
+                Color.FromArgb(182, 100, 198),
+                Color.FromArgb(225, 143, 241),
+                Color.FromArgb(255, 202, 255)
+            };
+
+            // 5: GREEN OK
+            Color[] greenCol =
+            {
+                Color.FromArgb(0, 70, 0),
+                Color.FromArgb(0, 82, 0),
+                Color.FromArgb(9, 95, 9),
+                Color.FromArgb(26, 112, 26),
+                Color.FromArgb(60, 146, 60),
+                Color.FromArgb(85, 172, 86),
+                Color.FromArgb(128, 214, 128),
+                Color.FromArgb(187, 255, 188)
+            };
+
+            // 6: BLUE OK
+            Color[] blueCol =
+            {
+                Color.FromArgb(21, 21, 135),
+                Color.FromArgb(34, 34, 148),
+                Color.FromArgb(46, 47, 160),
+                Color.FromArgb(63, 64, 177),
+                Color.FromArgb(97, 98, 211),
+                Color.FromArgb(123, 123, 237),
+                Color.FromArgb(165, 166, 255),
+                Color.FromArgb(225, 225, 255)
+            };
+
+            // 7: YELLOW OK
+            Color[] yellowCol =
+            {
+                Color.FromArgb(47, 47, 0),
+                Color.FromArgb(60, 60, 0),
+                Color.FromArgb(73, 72, 0),
+                Color.FromArgb(90, 89, 0),
+                Color.FromArgb(124, 123, 10),
+                Color.FromArgb(149, 149, 35),
+                Color.FromArgb(192, 191, 78),
+                Color.FromArgb(251, 251, 137)
+            };
+
+            // 8: ORANGE
+            Color[] orangeCol =
+            {
+                Color.FromArgb(88, 34, 10),
+                Color.FromArgb(102, 46, 18),
+                Color.FromArgb(116, 58, 26),
+                Color.FromArgb(134, 74, 38),
+                Color.FromArgb(168, 106, 66),
+                Color.FromArgb(194, 132, 90),
+                Color.FromArgb(236, 174, 130),
+                Color.FromArgb(255, 226, 192)
+            };
+
+            // 9: BROWN
+            Color[] brownCol =
+            {
+                Color.FromArgb(70, 42, 12),
+                Color.FromArgb(84, 54, 20),
+                Color.FromArgb(98, 66, 28),
+                Color.FromArgb(116, 82, 40),
+                Color.FromArgb(150, 114, 68),
+                Color.FromArgb(176, 140, 92),
+                Color.FromArgb(218, 182, 132),
+                Color.FromArgb(255, 232, 188)
+            };
+
+            // 10: YELLOW GREEN
+            Color[] yellowGreenCol =
+            {
+                Color.FromArgb(40, 70, 12),
+                Color.FromArgb(52, 86, 20),
+                Color.FromArgb(64, 102, 28),
+                Color.FromArgb(80, 122, 40),
+                Color.FromArgb(110, 156, 68),
+                Color.FromArgb(136, 182, 92),
+                Color.FromArgb(176, 224, 132),
+                Color.FromArgb(228, 255, 192)
+            };
+
+            // 11: PINK
+            Color[] pinkCol =
+            {
+                Color.FromArgb(84, 14, 52),
+                Color.FromArgb(98, 24, 66),
+                Color.FromArgb(112, 36, 80),
+                Color.FromArgb(130, 52, 98),
+                Color.FromArgb(164, 84, 132),
+                Color.FromArgb(190, 110, 158),
+                Color.FromArgb(232, 152, 200),
+                Color.FromArgb(255, 214, 244)
+            };
+
+            // 12: BLUE GREEN
+            Color[] blueGreenCol =
+            {
+                Color.FromArgb(12, 70, 42),
+                Color.FromArgb(20, 86, 54),
+                Color.FromArgb(30, 102, 68),
+                Color.FromArgb(44, 122, 86),
+                Color.FromArgb(72, 156, 116),
+                Color.FromArgb(98, 182, 142),
+                Color.FromArgb(138, 224, 184),
+                Color.FromArgb(200, 255, 232)
+            };
+
+            // 13: LIGHT BLUE
+            Color[] lightBlueCol =
+            {
+                Color.FromArgb(14, 48, 110),
+                Color.FromArgb(22, 62, 126),
+                Color.FromArgb(32, 76, 142),
+                Color.FromArgb(46, 94, 160),
+                Color.FromArgb(74, 124, 194),
+                Color.FromArgb(100, 150, 220),
+                Color.FromArgb(140, 192, 255),
+                Color.FromArgb(212, 238, 255)
+            };
+
+            // 14: DK BLUE OK
+            Color[] darkBlueCol =
+            {
+                Color.FromArgb(34, 14, 138),
+                Color.FromArgb(47, 27, 150),
+                Color.FromArgb(60, 39, 163),
+                Color.FromArgb(77, 56, 180),
+                Color.FromArgb(110, 90, 214),
+                Color.FromArgb(136, 116, 240),
+                Color.FromArgb(178, 158, 255),
+                Color.FromArgb(238, 218, 255)
+            };
+
+            // 15: LT GREEN OK
+            Color[] lightGreenCol =
+            {
+                Color.FromArgb(2, 67, 0),
+                Color.FromArgb(15, 80, 0),
+                Color.FromArgb(28, 93, 0),
+                Color.FromArgb(45, 110, 0),
+                Color.FromArgb(79, 144, 24),
+                Color.FromArgb(104, 169, 49),
+                Color.FromArgb(147, 212, 92),
+                Color.FromArgb(216, 255, 196)
+            };
+
+            Color[][] columns =
+            {
+                whiteCol, redCol, cyanCol, purpleCol, greenCol, blueCol, yellowCol,
+                orangeCol, brownCol, yellowGreenCol, pinkCol, blueGreenCol,
+                lightBlueCol, darkBlueCol, lightGreenCol
+            };
+
+            for (int hue = 1; hue < 16; hue++)
+            {
+                for (int luma = 0; luma < 8; luma++)
                 {
-                    double rad = hueAngles[hue] * Math.PI / 180.0;
-                    double y = lumaLevels[luma];
-                    double u = saturation * Math.Cos(rad);
-                    double v = saturation * Math.Sin(rad);
-
-                    int r = Math.Clamp((int)Math.Round((y + 1.140 * v) * 255.0), 0, 255);
-                    int g = Math.Clamp((int)Math.Round((y - 0.395 * u - 0.581 * v) * 255.0), 0, 255);
-                    int b = Math.Clamp((int)Math.Round((y + 2.032 * u) * 255.0), 0, 255);
-
-                    table[hue, luma] = Color.FromArgb(r, g, b);
+                    table[hue, luma] = columns[hue - 1][luma];
                 }
             }
 
             return table;
         }
-
         private static Color GetTedColor(int hue, int luma)
         {
             return TedPalette[hue & 0x0F, luma & 0x07];
@@ -933,7 +1124,37 @@ namespace Plus4Commander
         {
             int hue = tedByte & 0x0F;
             int luma = (tedByte >> 4) & 0x07;
+
             return GetTedColor(hue, luma);
+        }
+
+        private static bool TryGetMultiBColors(byte[] rawData, int headerOffset, out Color bg0, out Color bg1)
+        {
+            bg0 = Color.Black;
+            bg1 = Color.LightGray;
+
+            int[] candidateSigOffsets = { headerOffset + 1018, headerOffset + 1020 };
+            foreach (int sigOff in candidateSigOffsets)
+            {
+                if (sigOff >= 0 && sigOff + 5 < rawData.Length
+                    && rawData[sigOff] == (byte)'M'
+                    && rawData[sigOff + 1] == (byte)'U'
+                    && rawData[sigOff + 2] == (byte)'L'
+                    && rawData[sigOff + 3] == (byte)'T')
+                {
+                    byte rawFf16 = rawData[sigOff + 4];
+                    byte rawFf15 = rawData[sigOff + 5];
+
+                    byte ff16 = (byte)(((rawFf16 & 0x0F) << 4) | (rawFf16 >> 4));
+                    byte ff15 = (byte)(((rawFf15 & 0x0F) << 4) | (rawFf15 >> 4));
+
+                    bg1 = GetTedColorFromRegisterByte(ff16);
+                    bg0 = GetTedColorFromRegisterByte(ff15);
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public static Bitmap RenderScreenBitmap(byte[] rawData, bool multicolor, ImagePaletteMode paletteMode = ImagePaletteMode.Auto)
@@ -948,17 +1169,18 @@ namespace Plus4Commander
             int lumaOffset;
             int colorOffset;
             int bitmapOffset;
+            int payloadBaseOffset = 2;
 
-            if (startAddr == 0x1800 || rawData.Length >= 10050)
+            if (startAddr == 0x1800 || startAddr == 0x7800 || rawData.Length >= 10050)
             {
-                lumaOffset = 2 + 0x000;
-                colorOffset = 2 + 0x400;
-                bitmapOffset = 2 + 0x800;
+                lumaOffset = payloadBaseOffset + 0x000;
+                colorOffset = payloadBaseOffset + 0x400;
+                bitmapOffset = payloadBaseOffset + 0x800;
                 hasColorTables = true;
             }
             else
             {
-                lumaOffset = 2;
+                lumaOffset = payloadBaseOffset;
                 colorOffset = 1002;
                 bitmapOffset = hasColorTables ? 2050 : (rawData.Length >= 8002 ? 2 : 0);
             }
@@ -968,25 +1190,30 @@ namespace Plus4Commander
 
             if (hasColorTables && paletteMode != ImagePaletteMode.Raw)
             {
-                bool hasMultHeader = rawData.Length > 1025
-                                  && rawData[1020] == (byte)'M'
-                                  && rawData[1021] == (byte)'U'
-                                  && rawData[1022] == (byte)'L'
-                                  && rawData[1023] == (byte)'T';
+                bool foundMult = TryGetMultiBColors(rawData, payloadBaseOffset, out Color multBg0, out Color multBg1);
 
                 bool useMultiB = paletteMode == ImagePaletteMode.MultiB
-                              || (paletteMode == ImagePaletteMode.Auto && hasMultHeader);
+                              || (paletteMode == ImagePaletteMode.Auto && foundMult);
 
                 bool useBotticelli = paletteMode == ImagePaletteMode.Botticelli
-                                  || (paletteMode == ImagePaletteMode.Auto && !hasMultHeader && rawData.Length > 1003 && (rawData[1002] != 0 || rawData[1003] != 0));
+                                  || (paletteMode == ImagePaletteMode.Auto && !foundMult && rawData.Length > 1003 && (rawData[1002] != 0 || rawData[1003] != 0));
 
-                if (useMultiB && rawData.Length > 1025)
+                if (useMultiB)
                 {
-                    byte ff16 = (byte)(((rawData[1024] & 0x0F) << 4) | (rawData[1024] >> 4));
-                    byte ff15 = (byte)(((rawData[1025] & 0x0F) << 4) | (rawData[1025] >> 4));
-
-                    bg1 = GetTedColorFromRegisterByte(ff16);
-                    bg0 = GetTedColorFromRegisterByte(ff15);
+                    if (foundMult)
+                    {
+                        bg0 = multBg0;
+                        bg1 = multBg1;
+                    }
+                    else if (rawData.Length > payloadBaseOffset + 1023)
+                    {
+                        byte rawFf16 = rawData[payloadBaseOffset + 1022];
+                        byte rawFf15 = rawData[payloadBaseOffset + 1023];
+                        byte ff16 = (byte)(((rawFf16 & 0x0F) << 4) | (rawFf16 >> 4));
+                        byte ff15 = (byte)(((rawFf15 & 0x0F) << 4) | (rawFf15 >> 4));
+                        bg1 = GetTedColorFromRegisterByte(ff16);
+                        bg0 = GetTedColorFromRegisterByte(ff15);
+                    }
                 }
                 else if (useBotticelli && rawData.Length > 1003)
                 {
@@ -1014,8 +1241,11 @@ namespace Plus4Commander
                         byte lumaByte = rawData[lumaOffset + cellIndex];
                         byte colorByte = rawData[colorOffset + cellIndex];
 
+                        //int lumaHigh = 7 - ((lumaByte >> 4) & 0x07);
+                        //int lumaLow = 7 - (lumaByte & 0x07);
                         int lumaHigh = (lumaByte >> 4) & 0x07;
                         int lumaLow = lumaByte & 0x07;
+
                         int hueHigh = (colorByte >> 4) & 0x0F;
                         int hueLow = colorByte & 0x0F;
 

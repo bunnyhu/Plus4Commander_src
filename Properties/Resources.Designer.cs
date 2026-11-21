@@ -183,6 +183,16 @@ namespace Plus4Commander.Properties {
         /// <summary>
         ///   Looks up a localized resource of type System.Drawing.Bitmap.
         /// </summary>
+        internal static System.Drawing.Bitmap icoPalette {
+            get {
+                object obj = ResourceManager.GetObject("icoPalette", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized resource of type System.Drawing.Bitmap.
+        /// </summary>
         internal static System.Drawing.Bitmap icoPaste {
             get {
                 object obj = ResourceManager.GetObject("icoPaste", resourceCulture);
