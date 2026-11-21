@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Text;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 
 namespace Plus4Commander
 {
@@ -180,7 +182,7 @@ namespace Plus4Commander
             { 0xEC, "LOOP" }, { 0xED, "EXIT" }, { 0xEE, "DIRECTORY" }, { 0xEF, "DSAVE" },
             { 0xF0, "DLOAD" }, { 0xF1, "HEADER" }, { 0xF2, "SCRATCH" }, { 0xF3, "COLLECT" },
             { 0xF4, "COPY" }, { 0xF5, "RENAME" }, { 0xF6, "BACKUP" }, { 0xF7, "DELETE" },
-            { 0xF8, "RENUMBER" }, { 0xF9, "KEY" }, { 0xFA, "MONITOR" },
+            { 0xF8, "RENUMBER" }, { 0xFB, "USING" }, { 0xFC, "UNTIL" }, { 0xFD, "WHILE" },
             { 0xFF, "\u03C0" }
         };
 
@@ -1162,6 +1164,8 @@ namespace Plus4Commander
             int width = 320;
             int height = 200;
             Bitmap bmp = new Bitmap(width, height);
+            int[] pixels = new int[width * height];
+            Array.Fill(pixels, unchecked((int)0xFF000000)); // opak fekete alap
 
             bool hasColorTables = rawData.Length >= 10050;
             int startAddr = rawData.Length >= 2 ? (rawData[0] | (rawData[1] << 8)) : 0x2000;
@@ -1217,8 +1221,21 @@ namespace Plus4Commander
                 }
                 else if (useBotticelli && rawData.Length > 1003)
                 {
-                    bg0 = GetTedColorFromRegisterByte(rawData[1002]);
-                    bg1 = GetTedColorFromRegisterByte(rawData[1003]);
+//                    bg0 = GetTedColorFromRegisterByte(rawData[1002]);
+//                    bg1 = GetTedColorFromRegisterByte(rawData[1003]);
+// CLAUDE >>
+                    if (rawData.Length > 10050)
+                    {
+                        // $3F40: a Botticelli formátum háttérbájtja
+                        bg0 = GetTedColorFromRegisterByte(rawData[10050]);
+                        bg1 = bg0;
+                    }
+                    else
+                    {
+                        bg0 = GetTedColorFromRegisterByte(rawData[1002]);
+                        bg1 = GetTedColorFromRegisterByte(rawData[1003]);
+                    }
+// CLAUDE <<
                 }
             }
 
@@ -1243,8 +1260,12 @@ namespace Plus4Commander
 
                         //int lumaHigh = 7 - ((lumaByte >> 4) & 0x07);
                         //int lumaLow = 7 - (lumaByte & 0x07);
-                        int lumaHigh = (lumaByte >> 4) & 0x07;
-                        int lumaLow = lumaByte & 0x07;
+
+                        int lumaHigh = lumaByte & 0x07;          // alsó nibble -> a felső hue-hoz
+                        int lumaLow = (lumaByte >> 4) & 0x07;   // felső nibble -> az alsó hue-hoz
+
+                        //int lumaHigh = (lumaByte >> 4) & 0x07;
+                        //int lumaLow = lumaByte & 0x07;
 
                         int hueHigh = (colorByte >> 4) & 0x0F;
                         int hueLow = colorByte & 0x0F;
@@ -1261,21 +1282,22 @@ namespace Plus4Commander
                             mcColor3 = bg1;
                         }
                     }
-
                     for (int y = 0; y < 8; y++)
                     {
                         int py = row * 8 + y;
                         if (py >= height) continue;
 
                         byte b = rawData[cellBitmapOffset + y];
+                        int rowBase = py * width + col * 8;
 
                         if (!multicolor)
                         {
+                            int fg = fgColor.ToArgb();
+                            int bgc = cellBgColor.ToArgb();
                             for (int x = 0; x < 8; x++)
                             {
-                                int px = col * 8 + x;
                                 bool bitOn = (b & (1 << (7 - x))) != 0;
-                                bmp.SetPixel(px, py, bitOn ? fgColor : cellBgColor);
+                                pixels[rowBase + x] = bitOn ? fg : bgc;
                             }
                         }
                         else
@@ -1291,15 +1313,24 @@ namespace Plus4Commander
                                     3 => mcColor3,
                                     _ => bg0
                                 };
-                                int px = col * 8 + bitPair * 2;
-                                bmp.SetPixel(px, py, c);
-                                bmp.SetPixel(px + 1, py, c);
+                                int argb = c.ToArgb();
+                                pixels[rowBase + bitPair * 2] = argb;
+                                pixels[rowBase + bitPair * 2 + 1] = argb;
                             }
                         }
                     }
                 }
             }
-
+            var data = bmp.LockBits(new Rectangle(0, 0, width, height),
+                                    ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+            }
+            finally
+            {
+                bmp.UnlockBits(data);
+            }
             return bmp;
         }
 
