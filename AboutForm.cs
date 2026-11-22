@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
 using Microsoft.Win32;
+using System.Reflection;
 
 namespace Plus4Commander
 {
@@ -27,6 +28,11 @@ namespace Plus4Commander
             btnYapeExe.Click += BtnYapeExe_Click;
             linkLabel1.LinkClicked += LinkLabel1_LinkClicked;
             this.FormClosing += AboutForm_FormClosing;
+
+            var version = Assembly.GetExecutingAssembly().GetName().Version;
+            string versionText = version != null ? $"v{version.Major}.{version.Minor}.{version.Build}" : "v1.0.0";
+            this.lblVersion.Text = $"Version: {versionText}";
+
         }
 
         private void BtnYapeExe_Click(object? sender, EventArgs e)

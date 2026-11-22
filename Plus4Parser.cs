@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.IO;
-using System.Text;
 using System.Drawing.Imaging;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Plus4Commander
 {
@@ -58,28 +58,44 @@ namespace Plus4Commander
             if (file.Type.Contains("SEQ") || file.Type.Contains("USR") || file.Type.Contains("REL"))
                 return Plus4ContentType.SeqDatabaseOrText;
 
+            // A BASIC-ellenőrzés a betűkészlet elé került: egy 2048-2060 bájtos
+            // BASIC program ne legyen betűkészletnek nézve.
+            if (LooksLikeBasic(file))
+                return Plus4ContentType.BasicProgram;
+
             if (file.SizeInBytes >= 2048 && file.SizeInBytes <= 2060)
                 return Plus4ContentType.FontCharset;
 
-            if (file.StartAddress == 0x1001 || file.StartAddress == 0x4001)
-            {
-                if (file.RawData.Length > 4 && file.RawData[2] != 0 && file.RawData[3] < 0x80)
-                {
-                    return Plus4ContentType.BasicProgram;
-                }
-            }
-
             if (file.SizeInBytes >= 7000 && file.SizeInBytes <= 12500)
-            {
                 return Plus4ContentType.ScreenOrBitmap;
-            }
 
             return Plus4ContentType.MachineCode;
+        }
+
+        private static bool LooksLikeBasic(DiskFileItem file)
+        {
+            byte[] d = file.RawData;
+
+            if (file.StartAddress == 0x1001 || file.StartAddress == 0x4001)
+            {
+                // következő sor mutatójának alsó bájtja != 0, felső bájtja < $80
+                return d.Length > 4 && d[2] != 0 && d[3] < 0x80;
+            }
+
+            // $4000 kezdőcím + egy 0 bájt (ugyanezt kezeli a DetokenizeBasic is)
+            if (file.StartAddress == 0x4000 && d.Length > 6 && d[2] == 0x00)
+            {
+                return (d[3] != 0 || d[4] != 0) && d[4] < 0x80;
+            }
+
+            return false;
         }
     }
 
     public static class Plus4Parser
     {
+        private const int DataInterleave = 10;
+
         private enum AddrMode { IMP, ACC, IMM, ZP, ZPX, ZPY, ABS, ABX, ABY, IND, IZX, IZY, REL }
 
         private static readonly (string Mnemonic, AddrMode Mode)[] OpcodeTable = new (string, AddrMode)[256]
@@ -182,7 +198,8 @@ namespace Plus4Commander
             { 0xEC, "LOOP" }, { 0xED, "EXIT" }, { 0xEE, "DIRECTORY" }, { 0xEF, "DSAVE" },
             { 0xF0, "DLOAD" }, { 0xF1, "HEADER" }, { 0xF2, "SCRATCH" }, { 0xF3, "COLLECT" },
             { 0xF4, "COPY" }, { 0xF5, "RENAME" }, { 0xF6, "BACKUP" }, { 0xF7, "DELETE" },
-            { 0xF8, "RENUMBER" }, { 0xFB, "USING" }, { 0xFC, "UNTIL" }, { 0xFD, "WHILE" },
+            { 0xF8, "RENUMBER" }, { 0xF9, "KEY" }, { 0xFA, "MONITOR" },
+            { 0xFB, "USING" }, { 0xFC, "UNTIL" }, { 0xFD, "WHILE" },
             { 0xFF, "\u03C0" }
         };
 
@@ -363,13 +380,45 @@ namespace Plus4Commander
             }
         }
 
-        private static bool TryAllocateDataSector(byte[] d64, out byte outTrack, out byte outSector)
+        private static readonly int[] DataTrackOrder = BuildDataTrackOrder();
+
+        private static int[] BuildDataTrackOrder()
         {
-            for (int t = 17; t >= 1; t--)
+            // 1541 DOS: a 17-es sávtól lefelé az 1-esig, majd a 19-estől felfelé a 35-ösig
+            var order = new List<int>();
+            for (int t = 17; t >= 1; t--) order.Add(t);
+            for (int t = 19; t <= 35; t++) order.Add(t);
+            return order.ToArray();
+        }
+
+        /// <summary>
+        /// Adatszektort foglal interleave-vel (alapból 10). Az előző szektor (prevTrack/prevSector)
+        /// alapján keresi a következőt; ha prevTrack == 0, a 17-es sáv elejétől indul.
+        /// </summary>
+        private static bool TryAllocateDataSector(byte[] d64, int prevTrack, int prevSector,
+                                                  out byte outTrack, out byte outSector)
+        {
+            int startIdx = 0;
+            bool hasPrev = false;
+            if (prevTrack >= 1)
             {
-                int count = GetSectorsPerTrack(t);
-                for (int s = 0; s < count; s++)
+                int idx = Array.IndexOf(DataTrackOrder, prevTrack);
+                if (idx >= 0)
                 {
+                    startIdx = idx;
+                    hasPrev = true;
+                }
+            }
+
+            for (int i = startIdx; i < DataTrackOrder.Length; i++)
+            {
+                int t = DataTrackOrder[i];
+                int count = GetSectorsPerTrack(t);
+                int s0 = (i == startIdx && hasPrev) ? (prevSector + DataInterleave) % count : 0;
+
+                for (int k = 0; k < count; k++)
+                {
+                    int s = (s0 + k) % count;
                     if (IsSectorFree(d64, t, s))
                     {
                         SetSectorAllocated(d64, t, s);
@@ -380,8 +429,10 @@ namespace Plus4Commander
                 }
             }
 
-            for (int t = 19; t <= 35; t++)
+            // ha a végére értünk, a korábbi sávokat is átnézzük
+            for (int i = 0; i < startIdx; i++)
             {
+                int t = DataTrackOrder[i];
                 int count = GetSectorsPerTrack(t);
                 for (int s = 0; s < count; s++)
                 {
@@ -523,7 +574,7 @@ namespace Plus4Commander
 
                     byte[] existingNameBytes = new byte[16];
                     Array.Copy(d64, entryOffset + 5, existingNameBytes, 0, 16);
-                    string existingName = CbmBytesToString(existingNameBytes).Trim();
+                    string existingName = CbmBytesToString(existingNameBytes);
 
                     if (existingName.Equals(targetName, StringComparison.OrdinalIgnoreCase))
                     {
@@ -614,13 +665,16 @@ namespace Plus4Commander
             }
 
             var dataSectors = new List<(byte Track, byte Sector)>(dataSectorsNeeded);
+            int prevT = 0, prevS = 0;
             for (int i = 0; i < dataSectorsNeeded; i++)
             {
-                if (!TryAllocateDataSector(d64, out byte t, out byte s))
+                if (!TryAllocateDataSector(d64, prevT, prevS, out byte t, out byte s))
                 {
                     throw new InvalidOperationException("Failed to allocate data sector on D64 disk.");
                 }
                 dataSectors.Add((t, s));
+                prevT = t;
+                prevS = s;
             }
 
             for (int i = 0; i < dataSectors.Count; i++)
@@ -655,7 +709,7 @@ namespace Plus4Commander
                 var sideSectors = new List<(byte Track, byte Sector)>(sideSectorsNeeded);
                 for (int i = 0; i < sideSectorsNeeded; i++)
                 {
-                    if (!TryAllocateDataSector(d64, out byte t, out byte s))
+                    if (!TryAllocateDataSector(d64, 0, 0, out byte t, out byte s))
                     {
                         throw new InvalidOperationException("Failed to allocate side-sector on D64 disk.");
                     }
@@ -920,7 +974,6 @@ namespace Plus4Commander
             // 2: RED OK
             Color[] redCol =
             {
-
                 Color.FromArgb(91, 10, 11),
                 Color.FromArgb(103, 22, 23),
                 Color.FromArgb(116, 35, 36),
@@ -996,82 +1049,82 @@ namespace Plus4Commander
                 Color.FromArgb(251, 251, 137)
             };
 
-            // 8: ORANGE
+            // 8: ORANGE OK
             Color[] orangeCol =
             {
-                Color.FromArgb(88, 34, 10),
-                Color.FromArgb(102, 46, 18),
-                Color.FromArgb(116, 58, 26),
-                Color.FromArgb(134, 74, 38),
-                Color.FromArgb(168, 106, 66),
-                Color.FromArgb(194, 132, 90),
-                Color.FromArgb(236, 174, 130),
-                Color.FromArgb(255, 226, 192)
+                Color.FromArgb(79, 24, 0),   // LUM 0
+                Color.FromArgb(92, 36, 0),   // LUM 1
+                Color.FromArgb(105, 49, 0),   // LUM 2
+                Color.FromArgb(122, 66, 11),   // LUM 3
+                Color.FromArgb(156, 100, 45),   // LUM 4
+                Color.FromArgb(181, 126, 71),   // LUM 5
+                Color.FromArgb(224, 168, 113),   // LUM 6
+                Color.FromArgb(255, 228, 173),   // LUM 7
             };
 
-            // 9: BROWN
+            // 9: BROWN OK
             Color[] brownCol =
             {
-                Color.FromArgb(70, 42, 12),
-                Color.FromArgb(84, 54, 20),
-                Color.FromArgb(98, 66, 28),
-                Color.FromArgb(116, 82, 40),
-                Color.FromArgb(150, 114, 68),
-                Color.FromArgb(176, 140, 92),
-                Color.FromArgb(218, 182, 132),
-                Color.FromArgb(255, 232, 188)
+                Color.FromArgb(65, 35, 0),   // LUM 0
+                Color.FromArgb(78, 48, 0),   // LUM 1
+                Color.FromArgb(90, 61, 0),   // LUM 2
+                Color.FromArgb(107, 78, 0),   // LUM 3
+                Color.FromArgb(141, 112, 23),   // LUM 4
+                Color.FromArgb(167, 137, 48),   // LUM 5
+                Color.FromArgb(209, 180, 91),   // LUM 6
+                Color.FromArgb(255, 239, 150),   // LUM 7
             };
 
-            // 10: YELLOW GREEN
+            // 10: YELLOW GREEN OK
             Color[] yellowGreenCol =
             {
-                Color.FromArgb(40, 70, 12),
-                Color.FromArgb(52, 86, 20),
-                Color.FromArgb(64, 102, 28),
-                Color.FromArgb(80, 122, 40),
-                Color.FromArgb(110, 156, 68),
-                Color.FromArgb(136, 182, 92),
-                Color.FromArgb(176, 224, 132),
-                Color.FromArgb(228, 255, 192)
+                Color.FromArgb(19, 61, 0),   // LUM 0
+                Color.FromArgb(32, 74, 0),   // LUM 1
+                Color.FromArgb(44, 87, 0),   // LUM 2
+                Color.FromArgb(61, 104, 0),   // LUM 3
+                Color.FromArgb(95, 138, 10),   // LUM 4
+                Color.FromArgb(121, 163, 36),   // LUM 5
+                Color.FromArgb(163, 206, 78),   // LUM 6
+                Color.FromArgb(223, 255, 138),   // LUM 7
             };
 
-            // 11: PINK
+            // 11: PINK OK
             Color[] pinkCol =
             {
-                Color.FromArgb(84, 14, 52),
-                Color.FromArgb(98, 24, 66),
-                Color.FromArgb(112, 36, 80),
-                Color.FromArgb(130, 52, 98),
-                Color.FromArgb(164, 84, 132),
-                Color.FromArgb(190, 110, 158),
-                Color.FromArgb(232, 152, 200),
-                Color.FromArgb(255, 214, 244)
+                Color.FromArgb(92, 2, 47),   // LUM 0
+                Color.FromArgb(104, 15, 59),   // LUM 1
+                Color.FromArgb(117, 28, 72),   // LUM 2
+                Color.FromArgb(134, 45, 89),   // LUM 3
+                Color.FromArgb(168, 79, 123),   // LUM 4
+                Color.FromArgb(194, 104, 149),   // LUM 5
+                Color.FromArgb(236, 147, 191),   // LUM 6
+                Color.FromArgb(255, 206, 251),   // LUM 7
             };
 
-            // 12: BLUE GREEN
+            // 12: BLUE GREEN OK
             Color[] blueGreenCol =
             {
-                Color.FromArgb(12, 70, 42),
-                Color.FromArgb(20, 86, 54),
-                Color.FromArgb(30, 102, 68),
-                Color.FromArgb(44, 122, 86),
-                Color.FromArgb(72, 156, 116),
-                Color.FromArgb(98, 182, 142),
-                Color.FromArgb(138, 224, 184),
-                Color.FromArgb(200, 255, 232)
+                Color.FromArgb(0, 65, 25),   // LUM 0
+                Color.FromArgb(0, 78, 38),   // LUM 1
+                Color.FromArgb(2, 91, 50),   // LUM 2
+                Color.FromArgb(19, 108, 67),   // LUM 3
+                Color.FromArgb(53, 142, 101),   // LUM 4
+                Color.FromArgb(78, 167, 127),   // LUM 5
+                Color.FromArgb(121, 210, 169),   // LUM 6
+                Color.FromArgb(180, 255, 229),   // LUM 7
             };
 
-            // 13: LIGHT BLUE
+            // 13: LIGHT BLUE OK
             Color[] lightBlueCol =
             {
-                Color.FromArgb(14, 48, 110),
-                Color.FromArgb(22, 62, 126),
-                Color.FromArgb(32, 76, 142),
-                Color.FromArgb(46, 94, 160),
-                Color.FromArgb(74, 124, 194),
-                Color.FromArgb(100, 150, 220),
-                Color.FromArgb(140, 192, 255),
-                Color.FromArgb(212, 238, 255)
+                Color.FromArgb(0, 36, 117),   // LUM 0
+                Color.FromArgb(12, 48, 130),   // LUM 1
+                Color.FromArgb(25, 61, 142),   // LUM 2
+                Color.FromArgb(42, 78, 159),   // LUM 3
+                Color.FromArgb(76, 112, 193),   // LUM 4
+                Color.FromArgb(101, 138, 219),   // LUM 5
+                Color.FromArgb(144, 180, 255),   // LUM 6
+                Color.FromArgb(203, 240, 255),   // LUM 7
             };
 
             // 14: DK BLUE OK
@@ -1090,14 +1143,14 @@ namespace Plus4Commander
             // 15: LT GREEN OK
             Color[] lightGreenCol =
             {
-                Color.FromArgb(2, 67, 0),
-                Color.FromArgb(15, 80, 0),
-                Color.FromArgb(28, 93, 0),
-                Color.FromArgb(45, 110, 0),
-                Color.FromArgb(79, 144, 24),
-                Color.FromArgb(104, 169, 49),
-                Color.FromArgb(147, 212, 92),
-                Color.FromArgb(216, 255, 196)
+                Color.FromArgb(2, 67, 0),   // LUM 0
+                Color.FromArgb(15, 80, 0),   // LUM 1
+                Color.FromArgb(28, 93, 0),   // LUM 2
+                Color.FromArgb(45, 110, 0),   // LUM 3
+                Color.FromArgb(79, 144, 24),   // LUM 4
+                Color.FromArgb(104, 169, 49),   // LUM 5
+                Color.FromArgb(147, 212, 92),   // LUM 6
+                Color.FromArgb(206, 255, 151),   // LUM 7
             };
 
             Color[][] columns =
@@ -1117,6 +1170,7 @@ namespace Plus4Commander
 
             return table;
         }
+
         private static Color GetTedColor(int hue, int luma)
         {
             return TedPalette[hue & 0x0F, luma & 0x07];
@@ -1161,177 +1215,181 @@ namespace Plus4Commander
 
         public static Bitmap RenderScreenBitmap(byte[] rawData, bool multicolor, ImagePaletteMode paletteMode = ImagePaletteMode.Auto)
         {
-            int width = 320;
-            int height = 200;
+            const int width = 320;
+            const int height = 200;
             Bitmap bmp = new Bitmap(width, height);
-            int[] pixels = new int[width * height];
-            Array.Fill(pixels, unchecked((int)0xFF000000)); // opak fekete alap
 
-            bool hasColorTables = rawData.Length >= 10050;
-            int startAddr = rawData.Length >= 2 ? (rawData[0] | (rawData[1] << 8)) : 0x2000;
-
-            int lumaOffset;
-            int colorOffset;
-            int bitmapOffset;
-            int payloadBaseOffset = 2;
-
-            if (startAddr == 0x1800 || startAddr == 0x7800 || rawData.Length >= 10050)
-            {
-                lumaOffset = payloadBaseOffset + 0x000;
-                colorOffset = payloadBaseOffset + 0x400;
-                bitmapOffset = payloadBaseOffset + 0x800;
-                hasColorTables = true;
-            }
-            else
-            {
-                lumaOffset = payloadBaseOffset;
-                colorOffset = 1002;
-                bitmapOffset = hasColorTables ? 2050 : (rawData.Length >= 8002 ? 2 : 0);
-            }
-
-            Color bg0 = Color.Black;
-            Color bg1 = Color.Gray;
-
-            if (hasColorTables && paletteMode != ImagePaletteMode.Raw)
-            {
-                bool foundMult = TryGetMultiBColors(rawData, payloadBaseOffset, out Color multBg0, out Color multBg1);
-
-                bool useMultiB = paletteMode == ImagePaletteMode.MultiB
-                              || (paletteMode == ImagePaletteMode.Auto && foundMult);
-
-                bool useBotticelli = paletteMode == ImagePaletteMode.Botticelli
-                                  || (paletteMode == ImagePaletteMode.Auto && !foundMult && rawData.Length > 1003 && (rawData[1002] != 0 || rawData[1003] != 0));
-
-                if (useMultiB)
-                {
-                    if (foundMult)
-                    {
-                        bg0 = multBg0;
-                        bg1 = multBg1;
-                    }
-                    else if (rawData.Length > payloadBaseOffset + 1023)
-                    {
-                        byte rawFf16 = rawData[payloadBaseOffset + 1022];
-                        byte rawFf15 = rawData[payloadBaseOffset + 1023];
-                        byte ff16 = (byte)(((rawFf16 & 0x0F) << 4) | (rawFf16 >> 4));
-                        byte ff15 = (byte)(((rawFf15 & 0x0F) << 4) | (rawFf15 >> 4));
-                        bg1 = GetTedColorFromRegisterByte(ff16);
-                        bg0 = GetTedColorFromRegisterByte(ff15);
-                    }
-                }
-                else if (useBotticelli && rawData.Length > 1003)
-                {
-//                    bg0 = GetTedColorFromRegisterByte(rawData[1002]);
-//                    bg1 = GetTedColorFromRegisterByte(rawData[1003]);
-// CLAUDE >>
-                    if (rawData.Length > 10050)
-                    {
-                        // $3F40: a Botticelli formátum háttérbájtja
-                        bg0 = GetTedColorFromRegisterByte(rawData[10050]);
-                        bg1 = bg0;
-                    }
-                    else
-                    {
-                        bg0 = GetTedColorFromRegisterByte(rawData[1002]);
-                        bg1 = GetTedColorFromRegisterByte(rawData[1003]);
-                    }
-// CLAUDE <<
-                }
-            }
-
-            for (int row = 0; row < 25; row++)
-            {
-                for (int col = 0; col < 40; col++)
-                {
-                    int cellIndex = row * 40 + col;
-                    int cellBitmapOffset = bitmapOffset + cellIndex * 8;
-                    if (cellBitmapOffset + 8 > rawData.Length) break;
-
-                    Color fgColor = Color.SpringGreen;
-                    Color cellBgColor = Color.Black;
-                    Color mcColor1 = bg1;
-                    Color mcColor2 = Color.Cyan;
-                    Color mcColor3 = Color.Yellow;
-
-                    if (hasColorTables && (lumaOffset + cellIndex < rawData.Length) && (colorOffset + cellIndex < rawData.Length))
-                    {
-                        byte lumaByte = rawData[lumaOffset + cellIndex];
-                        byte colorByte = rawData[colorOffset + cellIndex];
-
-                        //int lumaHigh = 7 - ((lumaByte >> 4) & 0x07);
-                        //int lumaLow = 7 - (lumaByte & 0x07);
-
-                        int lumaHigh = lumaByte & 0x07;          // alsó nibble -> a felső hue-hoz
-                        int lumaLow = (lumaByte >> 4) & 0x07;   // felső nibble -> az alsó hue-hoz
-
-                        //int lumaHigh = (lumaByte >> 4) & 0x07;
-                        //int lumaLow = lumaByte & 0x07;
-
-                        int hueHigh = (colorByte >> 4) & 0x0F;
-                        int hueLow = colorByte & 0x0F;
-
-                        if (!multicolor)
-                        {
-                            fgColor = GetTedColor(hueHigh, lumaHigh);
-                            cellBgColor = GetTedColor(hueLow, lumaLow);
-                        }
-                        else
-                        {
-                            mcColor1 = GetTedColor(hueHigh, lumaHigh);
-                            mcColor2 = GetTedColor(hueLow, lumaLow);
-                            mcColor3 = bg1;
-                        }
-                    }
-                    for (int y = 0; y < 8; y++)
-                    {
-                        int py = row * 8 + y;
-                        if (py >= height) continue;
-
-                        byte b = rawData[cellBitmapOffset + y];
-                        int rowBase = py * width + col * 8;
-
-                        if (!multicolor)
-                        {
-                            int fg = fgColor.ToArgb();
-                            int bgc = cellBgColor.ToArgb();
-                            for (int x = 0; x < 8; x++)
-                            {
-                                bool bitOn = (b & (1 << (7 - x))) != 0;
-                                pixels[rowBase + x] = bitOn ? fg : bgc;
-                            }
-                        }
-                        else
-                        {
-                            for (int bitPair = 0; bitPair < 4; bitPair++)
-                            {
-                                int code = (b >> (6 - bitPair * 2)) & 0x03;
-                                Color c = code switch
-                                {
-                                    0 => bg0,
-                                    1 => mcColor1,
-                                    2 => mcColor2,
-                                    3 => mcColor3,
-                                    _ => bg0
-                                };
-                                int argb = c.ToArgb();
-                                pixels[rowBase + bitPair * 2] = argb;
-                                pixels[rowBase + bitPair * 2 + 1] = argb;
-                            }
-                        }
-                    }
-                }
-            }
-            var data = bmp.LockBits(new Rectangle(0, 0, width, height),
-                                    ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
             try
             {
-                Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+                int[] pixels = new int[width * height];
+                Array.Fill(pixels, unchecked((int)0xFF000000)); // opak fekete alap
+
+                bool hasColorTables = rawData.Length >= 10050;
+                int startAddr = rawData.Length >= 2 ? (rawData[0] | (rawData[1] << 8)) : 0x2000;
+
+                int lumaOffset;
+                int colorOffset;
+                int bitmapOffset;
+                int payloadBaseOffset = 2;
+
+                if (startAddr == 0x1800 || startAddr == 0x7800 || rawData.Length >= 10050)
+                {
+                    lumaOffset = payloadBaseOffset + 0x000;
+                    colorOffset = payloadBaseOffset + 0x400;
+                    bitmapOffset = payloadBaseOffset + 0x800;
+                    hasColorTables = true;
+                }
+                else
+                {
+                    lumaOffset = payloadBaseOffset;
+                    colorOffset = 1002;
+                    bitmapOffset = hasColorTables ? 2050 : (rawData.Length >= 8002 ? 2 : 0);
+                }
+
+                Color bg0 = Color.Black;
+                Color bg1 = Color.Gray;
+
+                if (hasColorTables && paletteMode != ImagePaletteMode.Raw)
+                {
+                    bool foundMult = TryGetMultiBColors(rawData, payloadBaseOffset, out Color multBg0, out Color multBg1);
+
+                    bool useMultiB = paletteMode == ImagePaletteMode.MultiB
+                                  || (paletteMode == ImagePaletteMode.Auto && foundMult);
+
+                    bool useBotticelli = paletteMode == ImagePaletteMode.Botticelli
+                                      || (paletteMode == ImagePaletteMode.Auto && !foundMult && rawData.Length > 1003 && (rawData[1002] != 0 || rawData[1003] != 0));
+
+                    if (useMultiB)
+                    {
+                        if (foundMult)
+                        {
+                            bg0 = multBg0;
+                            bg1 = multBg1;
+                        }
+                        else if (rawData.Length > payloadBaseOffset + 1023)
+                        {
+                            byte rawFf16 = rawData[payloadBaseOffset + 1022];
+                            byte rawFf15 = rawData[payloadBaseOffset + 1023];
+                            byte ff16 = (byte)(((rawFf16 & 0x0F) << 4) | (rawFf16 >> 4));
+                            byte ff15 = (byte)(((rawFf15 & 0x0F) << 4) | (rawFf15 >> 4));
+                            bg1 = GetTedColorFromRegisterByte(ff16);
+                            bg0 = GetTedColorFromRegisterByte(ff15);
+                        }
+                    }
+                    else if (useBotticelli && rawData.Length > 1003)
+                    {
+                        if (rawData.Length > 10050)
+                        {
+                            // $3F40: a Botticelli formátum háttérbájtja
+                            bg0 = GetTedColorFromRegisterByte(rawData[10050]);
+                            bg1 = bg0;
+                        }
+                        else
+                        {
+                            bg0 = GetTedColorFromRegisterByte(rawData[1002]);
+                            bg1 = GetTedColorFromRegisterByte(rawData[1003]);
+                        }
+                    }
+                }
+
+                for (int row = 0; row < 25; row++)
+                {
+                    for (int col = 0; col < 40; col++)
+                    {
+                        int cellIndex = row * 40 + col;
+                        int cellBitmapOffset = bitmapOffset + cellIndex * 8;
+                        if (cellBitmapOffset + 8 > rawData.Length) break;
+
+                        Color fgColor = Color.SpringGreen;
+                        Color cellBgColor = Color.Black;
+                        Color mcColor1 = bg1;
+                        Color mcColor2 = Color.Cyan;
+                        Color mcColor3 = Color.Yellow;
+
+                        if (hasColorTables && (lumaOffset + cellIndex < rawData.Length) && (colorOffset + cellIndex < rawData.Length))
+                        {
+                            byte lumaByte = rawData[lumaOffset + cellIndex];
+                            byte colorByte = rawData[colorOffset + cellIndex];
+
+                            // A luma bájt alsó nibble-je tartozik a színbájt felső nibble-jéhez (hue),
+                            // a felső nibble pedig az alsóhoz. (Ellenőrizve a Dan Dare képpel.)
+                            int lumaHigh = lumaByte & 0x07;
+                            int lumaLow = (lumaByte >> 4) & 0x07;
+
+                            int hueHigh = (colorByte >> 4) & 0x0F;
+                            int hueLow = colorByte & 0x0F;
+
+                            if (!multicolor)
+                            {
+                                fgColor = GetTedColor(hueHigh, lumaHigh);
+                                cellBgColor = GetTedColor(hueLow, lumaLow);
+                            }
+                            else
+                            {
+                                mcColor1 = GetTedColor(hueHigh, lumaHigh);
+                                mcColor2 = GetTedColor(hueLow, lumaLow);
+                                mcColor3 = bg1;
+                            }
+                        }
+
+                        for (int y = 0; y < 8; y++)
+                        {
+                            int py = row * 8 + y;
+                            if (py >= height) continue;
+
+                            byte b = rawData[cellBitmapOffset + y];
+                            int rowBase = py * width + col * 8;
+
+                            if (!multicolor)
+                            {
+                                int fg = fgColor.ToArgb();
+                                int bgc = cellBgColor.ToArgb();
+                                for (int x = 0; x < 8; x++)
+                                {
+                                    bool bitOn = (b & (1 << (7 - x))) != 0;
+                                    pixels[rowBase + x] = bitOn ? fg : bgc;
+                                }
+                            }
+                            else
+                            {
+                                for (int bitPair = 0; bitPair < 4; bitPair++)
+                                {
+                                    int code = (b >> (6 - bitPair * 2)) & 0x03;
+                                    Color c = code switch
+                                    {
+                                        0 => bg0,
+                                        1 => mcColor1,
+                                        2 => mcColor2,
+                                        3 => mcColor3,
+                                        _ => bg0
+                                    };
+                                    int argb = c.ToArgb();
+                                    pixels[rowBase + bitPair * 2] = argb;
+                                    pixels[rowBase + bitPair * 2 + 1] = argb;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                var data = bmp.LockBits(new Rectangle(0, 0, width, height),
+                                        ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                try
+                {
+                    Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+                }
+                finally
+                {
+                    bmp.UnlockBits(data);
+                }
+
+                return bmp;
             }
-            finally
+            catch
             {
-                bmp.UnlockBits(data);
+                bmp.Dispose();
+                throw;
             }
-            return bmp;
         }
 
         public static string Disassemble6502(byte[] prgData, int maxInstructions = 400)
@@ -1417,11 +1475,50 @@ namespace Plus4Commander
         public static DiskFileItem LoadStandalonePcFile(string filePath)
         {
             byte[] fileBytes = ReadAllBytesShared(filePath);
-            string ext = Path.GetExtension(filePath).ToUpper();
+            string ext = Path.GetExtension(filePath).ToUpperInvariant();
             string type = "PRG";
-            if (ext == ".SEQ") type = "SEQ";
-            else if (ext == ".USR") type = "USR";
-            else if (ext == ".REL") type = "REL";
+            string name = Path.GetFileName(filePath);
+            byte[] rawName = Array.Empty<byte>();
+            int recordLength = 0;
+
+            // PC64 .P00/.S00/.U00/.R00 konténer: "C64File\0" + 16 bájt név + 0 + rekordhossz = 26 bájt fejléc
+            bool isP00 = fileBytes.Length >= 26
+                      && fileBytes[0] == (byte)'C' && fileBytes[1] == (byte)'6' && fileBytes[2] == (byte)'4'
+                      && fileBytes[3] == (byte)'F' && fileBytes[4] == (byte)'i' && fileBytes[5] == (byte)'l'
+                      && fileBytes[6] == (byte)'e' && fileBytes[7] == 0x00;
+
+            if (isP00)
+            {
+                rawName = new byte[16];
+                Array.Copy(fileBytes, 8, rawName, 0, 16);
+                for (int i = 0; i < rawName.Length; i++)
+                {
+                    if (rawName[i] == 0x00) rawName[i] = 0xA0;
+                }
+
+                string parsedName = CbmBytesToString(rawName);
+                if (!string.IsNullOrEmpty(parsedName)) name = parsedName;
+
+                char kind = ext.Length >= 2 ? ext[1] : 'P';
+                type = kind switch
+                {
+                    'S' => "SEQ",
+                    'U' => "USR",
+                    'R' => "REL",
+                    _ => "PRG"
+                };
+                if (type == "REL") recordLength = fileBytes[25];
+
+                byte[] stripped = new byte[fileBytes.Length - 26];
+                Array.Copy(fileBytes, 26, stripped, 0, stripped.Length);
+                fileBytes = stripped;
+            }
+            else
+            {
+                if (ext == ".SEQ") type = "SEQ";
+                else if (ext == ".USR") type = "USR";
+                else if (ext == ".REL") type = "REL";
+            }
 
             int startAddr = 0;
             int endAddr = 0;
@@ -1435,12 +1532,14 @@ namespace Plus4Commander
 
             return new DiskFileItem
             {
-                Name = Path.GetFileName(filePath),
+                Name = name,
+                RawNameBytes = rawName,
                 Type = type,
                 StartAddress = startAddr,
                 EndAddress = endAddr,
                 SizeInBytes = fileBytes.Length,
                 BlockSize = blocks,
+                RecordLength = recordLength,
                 RawData = fileBytes,
                 IsVirtual = false
             };
@@ -1466,15 +1565,15 @@ namespace Plus4Commander
             byte[] nameBytes = new byte[16];
             Array.Copy(d64Data, bamOffset + 0x90, nameBytes, 0, 16);
             header.RawDiskNameBytes = nameBytes;
-            header.DiskName = CbmBytesToString(nameBytes).Trim();
+            header.DiskName = CbmBytesToString(nameBytes);
 
             byte[] idBytes = new byte[2];
             Array.Copy(d64Data, bamOffset + 0xA2, idBytes, 0, 2);
-            header.DiskId = CbmBytesToString(idBytes).Trim();
+            header.DiskId = CbmBytesToString(idBytes);
 
             byte[] dosBytes = new byte[2];
             Array.Copy(d64Data, bamOffset + 0xA5, dosBytes, 0, 2);
-            header.DosType = CbmBytesToString(dosBytes).Trim();
+            header.DosType = CbmBytesToString(dosBytes);
 
             int freeBlocks = 0;
             for (int track = 1; track <= 35; track++)
@@ -1503,7 +1602,7 @@ namespace Plus4Commander
                 byte[] tapeNameBytes = new byte[24];
                 Array.Copy(t64Data, 0x28, tapeNameBytes, 0, 24);
                 header.RawDiskNameBytes = tapeNameBytes;
-                header.DiskName = CbmBytesToString(tapeNameBytes).Trim();
+                header.DiskName = CbmBytesToString(tapeNameBytes);
             }
 
             if (string.IsNullOrEmpty(header.DiskName))
@@ -1520,6 +1619,14 @@ namespace Plus4Commander
             byte[] d64Data = ReadAllBytesShared(filePath);
 
             int dirTrack18Offset = 91392;
+            if (d64Data.Length < dirTrack18Offset + 256)
+            {
+                throw new InvalidDataException("Invalid or truncated D64 disk image.");
+            }
+
+            // 35 sávos (174848 / 175531 bájt) és 40 sávos (196608 / 197376 bájt) képek
+            int maxTrack = d64Data.Length >= 196608 ? 40 : 35;
+
             byte currentTrack = d64Data[dirTrack18Offset];
             byte currentSector = d64Data[dirTrack18Offset + 1];
             var visited = new HashSet<(int, int)>();
@@ -1547,11 +1654,11 @@ namespace Plus4Commander
 
                     byte[] nameBytes = new byte[16];
                     Array.Copy(d64Data, entryOffset + 5, nameBytes, 0, 16);
-                    string fileName = CbmBytesToString(nameBytes).Trim();
+                    string fileName = CbmBytesToString(nameBytes);
 
                     int dirBlockCount = d64Data[entryOffset + 30] | (d64Data[entryOffset + 31] << 8);
 
-                    byte[] fileData = ReadFileChain(d64Data, startTrack, startSector);
+                    byte[] fileData = ReadFileChain(d64Data, startTrack, startSector, maxTrack);
 
                     int startAddr = 0;
                     int endAddr = 0;
@@ -1587,15 +1694,14 @@ namespace Plus4Commander
             return files;
         }
 
-        public static List<DiskFileItem> ReadT64File(string filePath)
+        /// <summary>
+        /// Azoknak a T64 bejegyzéseknek az offszetjei (a fájlon belül), amelyeket a ReadT64File listába vesz:
+        /// nem üres típus és érvényes adat-offszet. A törlés/átnevezés ugyanezt az indexelést használja.
+        /// </summary>
+        private static List<int> GetValidT64EntryOffsets(byte[] t64Data)
         {
-            var files = new List<DiskFileItem>();
-            byte[] t64Data = ReadAllBytesShared(filePath);
-
-            if (t64Data.Length < 64)
-            {
-                throw new InvalidDataException("Invalid or truncated T64 tape image.");
-            }
+            var result = new List<int>();
+            if (t64Data.Length < 64) return result;
 
             int maxEntries = t64Data[0x22] | (t64Data[0x23] << 8);
             int usedEntries = t64Data[0x24] | (t64Data[0x25] << 8);
@@ -1606,8 +1712,46 @@ namespace Plus4Commander
                 int entryOffset = 64 + (i * 32);
                 if (entryOffset + 32 > t64Data.Length) break;
 
-                byte entryType = t64Data[entryOffset];
-                if (entryType == 0x00) continue;
+                if (t64Data[entryOffset] == 0x00) continue;
+
+                int dataOffset = t64Data[entryOffset + 8]
+                               | (t64Data[entryOffset + 9] << 8)
+                               | (t64Data[entryOffset + 10] << 16)
+                               | (t64Data[entryOffset + 11] << 24);
+                if (dataOffset <= 0 || dataOffset >= t64Data.Length) continue;
+
+                result.Add(entryOffset);
+            }
+
+            return result;
+        }
+
+        public static List<DiskFileItem> ReadT64File(string filePath)
+        {
+            var files = new List<DiskFileItem>();
+            byte[] t64Data = ReadAllBytesShared(filePath);
+
+            if (t64Data.Length < 64)
+            {
+                throw new InvalidDataException("Invalid or truncated T64 tape image.");
+            }
+
+            List<int> entryOffsets = GetValidT64EntryOffsets(t64Data);
+
+            // Az összes adat-offszet, hogy hibás végcímnél a következő bejegyzés kezdetéig (vagy a fájl végéig) olvashassunk.
+            var allDataOffsets = new List<int>();
+            foreach (int eo in entryOffsets)
+            {
+                allDataOffsets.Add(t64Data[eo + 8]
+                                 | (t64Data[eo + 9] << 8)
+                                 | (t64Data[eo + 10] << 16)
+                                 | (t64Data[eo + 11] << 24));
+            }
+            allDataOffsets.Sort();
+
+            for (int n = 0; n < entryOffsets.Count; n++)
+            {
+                int entryOffset = entryOffsets[n];
 
                 byte cbmFileType = t64Data[entryOffset + 1];
                 string typeStr = (cbmFileType & 0x07) switch
@@ -1628,15 +1772,30 @@ namespace Plus4Commander
 
                 byte[] nameBytes = new byte[16];
                 Array.Copy(t64Data, entryOffset + 16, nameBytes, 0, 16);
-                string fileName = CbmBytesToString(nameBytes).Trim();
-                if (string.IsNullOrEmpty(fileName)) fileName = $"TAPE_FILE_{i + 1}";
+                string fileName = CbmBytesToString(nameBytes);
+                if (string.IsNullOrEmpty(fileName)) fileName = $"TAPE_FILE_{n + 1}";
 
-                int payloadLength = Math.Max(0, endAddr - startAddr);
-                if (dataOffset <= 0 || dataOffset >= t64Data.Length) continue;
+                int payloadLength = endAddr - startAddr;
+                if (payloadLength <= 0)
+                {
+                    // hibás/nulla végcím: a következő bejegyzés adatáig vagy a fájl végéig
+                    int nextOffset = t64Data.Length;
+                    foreach (int o in allDataOffsets)
+                    {
+                        if (o > dataOffset)
+                        {
+                            nextOffset = o;
+                            break;
+                        }
+                    }
+                    payloadLength = nextOffset - dataOffset;
+                }
+
                 if (dataOffset + payloadLength > t64Data.Length)
                 {
                     payloadLength = t64Data.Length - dataOffset;
                 }
+                if (payloadLength < 0) payloadLength = 0;
 
                 byte[] prgData = new byte[payloadLength + 2];
                 prgData[0] = (byte)(startAddr & 0xFF);
@@ -1651,7 +1810,7 @@ namespace Plus4Commander
                     RawNameBytes = nameBytes,
                     Type = typeStr,
                     StartAddress = startAddr,
-                    EndAddress = endAddr > 0 ? endAddr - 1 : startAddr + payloadLength - 1,
+                    EndAddress = startAddr + payloadLength - 1,
                     SizeInBytes = prgData.Length,
                     BlockSize = blocks,
                     RawData = prgData,
@@ -1672,12 +1831,12 @@ namespace Plus4Commander
             return (sectorsBefore + sector) * 256;
         }
 
-        private static byte[] ReadFileChain(byte[] d64, byte track, byte sector)
+        private static byte[] ReadFileChain(byte[] d64, byte track, byte sector, int maxTrack = 35)
         {
             var buffer = new List<byte>();
             var visited = new HashSet<(int, int)>();
 
-            while (track != 0 && track <= 35 && visited.Add((track, sector)))
+            while (track != 0 && track <= maxTrack && visited.Add((track, sector)))
             {
                 int offset = GetD64Offset(track, sector);
                 if (offset < 0 || offset + 256 > d64.Length) break;
@@ -1712,15 +1871,30 @@ namespace Plus4Commander
             return type;
         }
 
+        /// <summary>
+        /// CBM név bájtokból szöveg. A záró $A0/$00/$20 bájtokat levágja, a név belsejében lévő
+        /// $A0 (shiftelt szóköz) és $00 szóközként jelenik meg, a vezető szóközök megmaradnak.
+        /// </summary>
         private static string CbmBytesToString(byte[] bytes)
         {
-            StringBuilder sb = new StringBuilder();
-            foreach (byte b in bytes)
+            int last = bytes.Length - 1;
+            while (last >= 0 && (bytes[last] == 0xA0 || bytes[last] == 0x00 || bytes[last] == 0x20))
             {
-                if (b == 0xA0 || b == 0x00) break;
+                last--;
+            }
+
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i <= last; i++)
+            {
+                byte b = bytes[i];
+                if (b == 0xA0 || b == 0x00)
+                {
+                    sb.Append(' ');
+                    continue;
+                }
+
                 char c = (char)b;
                 if (b >= 0xC1 && b <= 0xDA) c = (char)(b - 0x80);
-                else if (b == 0x20 && sb.Length == 0) continue;
                 sb.Append(c);
             }
             return sb.ToString();
@@ -1749,6 +1923,7 @@ namespace Plus4Commander
                 sb.Append(lineNumber).Append(" ");
                 bool insideQuotes = false;
                 bool insideRem = false;
+                bool insideData = false;
 
                 while (index < prgData.Length && prgData[index] != 0)
                 {
@@ -1759,15 +1934,19 @@ namespace Plus4Commander
                         insideQuotes = !insideQuotes;
                         sb.Append('"');
                     }
-                    else if (!insideQuotes && !insideRem && BasicTokens.ContainsKey(b))
+                    else if (!insideQuotes && !insideRem && !insideData
+                             && BasicTokens.TryGetValue(b, out string? token))
                     {
-                        string token = BasicTokens[b];
-                        if (token == "REM") insideRem = true;
+                        if (b == 0x8F) insideRem = true;   // REM
+                        if (b == 0x83) insideData = true;  // DATA
 
                         sb.Append(token);
                     }
                     else
                     {
+                        // a DATA utasítás a következő kettőspontig (idézőjelen kívül) ér véget
+                        if (b == (byte)':' && !insideQuotes) insideData = false;
+
                         if (useCbmPua)
                         {
                             sb.Append(char.ConvertFromUtf32(0xE000 + b));
@@ -1888,10 +2067,10 @@ namespace Plus4Commander
 
         public static void RenameFileInT64(string filePath, int activeFileIndex, string newName)
         {
-            DiskHeaderInfo header = ReadT64Header(filePath);
-            List<DiskFileItem> files = ReadT64File(filePath);
+            byte[] t64 = ReadAllBytesShared(filePath);
+            List<int> entryOffsets = GetValidT64EntryOffsets(t64);
 
-            if (activeFileIndex < 0 || activeFileIndex >= files.Count)
+            if (activeFileIndex < 0 || activeFileIndex >= entryOffsets.Count)
             {
                 throw new InvalidOperationException("Selected file entry was not found in the T64 tape image.");
             }
@@ -1902,10 +2081,12 @@ namespace Plus4Commander
             if (cleanNewName.Length > 16)
                 cleanNewName = cleanNewName.Substring(0, 16);
 
-            files[activeFileIndex].Name = cleanNewName;
-            files[activeFileIndex].RawNameBytes = EncodeCbmName(cleanNewName, 16, 0x20);
+            // Helyben írjuk át a bejegyzés 16-31. bájtjait, a többi bejegyzés érintetlen marad.
+            int entryOffset = entryOffsets[activeFileIndex];
+            byte[] encodedName = EncodeCbmName(cleanNewName, 16, 0x20);
+            Array.Copy(encodedName, 0, t64, entryOffset + 16, 16);
 
-            SaveT64File(filePath, header.DiskName, files);
+            File.WriteAllBytes(filePath, t64);
         }
 
         public static void RenameD64Header(string filePath, string newDiskName, string? newDiskId = null)

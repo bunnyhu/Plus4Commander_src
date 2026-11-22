@@ -1,5 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
@@ -9,15 +8,17 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>rozsaszin_flamingo128x128.png</PackageIcon>
     <RepositoryUrl>https://github.com/bunnyhu/Plus4Commander</RepositoryUrl>
-    <ApplicationIcon>res\rozsaszin_flamingo_w.ico</ApplicationIcon>
+    <ApplicationIcon>res\rozsaszin_flamingo4.ico</ApplicationIcon>
     <Authors>Bunny</Authors>
     <Title>Plus/4 Commander</Title>
+    <ProduceReferenceAssembly>False</ProduceReferenceAssembly>
   </PropertyGroup>
-
+  <PropertyGroup>
+    <Version>1.1.2</Version>
+  </PropertyGroup>
   <ItemGroup>
-    <Content Include="res\rozsaszin_flamingo_w.ico" />
+    <Content Include="res\rozsaszin_flamingo4.ico" />
   </ItemGroup>
-
   <ItemGroup>
     <Compile Update="Properties\Resources.Designer.cs">
       <DesignTime>True</DesignTime>
@@ -25,17 +26,24 @@
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
   </ItemGroup>
-
   <ItemGroup>
     <EmbeddedResource Update="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
     </EmbeddedResource>
   </ItemGroup>
-
   <ItemGroup>
     <None Update="Fonts\C64_Pro_Mono-STYLE.ttf">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </None>
+    <None Update="LICENSE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="MANUAL.md">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="MANUAL_HU.md">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="OLVASS_EL.md">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
@@ -62,5 +70,20 @@
       <PackagePath>\</PackagePath>
     </None>
   </ItemGroup>
-
+  <Target Name="IncrementBuildOnPublish" BeforeTargets="BeforeBuild" Condition="'$(_IsPublishing)' == 'true' Or '$(PublishProfile)' != ''">
+    <PropertyGroup>
+      <VerMajor>$([System.Version]::Parse($(Version)).Major)</VerMajor>
+      <VerMinor>$([System.Version]::Parse($(Version)).Minor)</VerMinor>
+      <VerBuild>$([System.Version]::Parse($(Version)).Build)</VerBuild>
+      <NewBuild>$([MSBuild]::Add($(VerBuild), 1))</NewBuild>
+      <NewVersion>$(VerMajor).$(VerMinor).$(NewBuild)</NewVersion>
+    </PropertyGroup>
+    <XmlPoke XmlInputPath="$(MSBuildProjectFullPath)" Query="/Project/PropertyGroup/Version" Value="$(NewVersion)" />
+    <PropertyGroup>
+      <Version>$(NewVersion)</Version>
+      <AssemblyVersion>$(NewVersion).0</AssemblyVersion>
+      <FileVersion>$(NewVersion).0</FileVersion>
+    </PropertyGroup>
+    <Message Importance="high" Text="Publish: új verzió $(NewVersion)" />
+  </Target>
 </Project>

@@ -11,6 +11,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Windows.Forms;
+using System.Reflection;
 
 namespace Plus4Commander
 {
@@ -110,6 +111,11 @@ namespace Plus4Commander
             BindEvents();
             UpdateActiveViewButtonHighlight();
             UpdateViewContextControlsVisibility("HEX");
+
+            var version = Assembly.GetExecutingAssembly().GetName().Version;
+            string versionText = version != null ? $"v{version.Major}.{version.Minor}.{version.Build}" : "v1.0.0";
+            this.Text = $"Plus/4 Commander {versionText}";
+
 
             string defaultPath = Path.GetPathRoot(AppDomain.CurrentDomain.BaseDirectory) ?? @"C:\";
             string savedPath = LoadLastPathFromRegistry();
@@ -236,13 +242,14 @@ namespace Plus4Commander
         private void InitializeFileListContextMenu()
         {
             ctxListMenu = new ContextMenuStrip();
+            var separator = new ToolStripSeparator();
 
-            miCopyCbmFile = new ToolStripMenuItem("Copy Commodore File", icoCopy, (s, e) => CopySelectedCbmFileToClipboard())
+            miCopyCbmFile = new ToolStripMenuItem("Copy File", icoCopy, (s, e) => CopySelectedCbmFileToClipboard())
             {
                 ShortcutKeyDisplayString = "Ctrl+C"
             };
 
-            miPasteCbmFile = new ToolStripMenuItem("Paste Commodore File", icoPaste, (s, e) => PasteCbmFileFromClipboard())
+            miPasteCbmFile = new ToolStripMenuItem("Paste File", icoPaste, (s, e) => PasteCbmFileFromClipboard())
             {
                 ShortcutKeyDisplayString = "Ctrl+V"
             };
@@ -252,14 +259,14 @@ namespace Plus4Commander
                 ShortcutKeyDisplayString = "F2"
             };
 
-            miRenameImageHeader = new ToolStripMenuItem("Rename Disk/Tape Label...", icoRenameVol, (s, e) => RenameVirtualImageHeader());
-
             miDeleteVirtualFile = new ToolStripMenuItem("Delete File from Image", icoDelete, (s, e) => DeleteSelectedVirtualFile())
             {
                 ShortcutKeyDisplayString = "Del"
             };
 
             miSepCreateImage = new ToolStripSeparator();
+
+            miRenameImageHeader = new ToolStripMenuItem("Rename Disk/Tape Label...", icoRenameVol, (s, e) => RenameVirtualImageHeader());
             miNewD64 = new ToolStripMenuItem("Create Empty D64 Disk Image...", icoD64, (s, e) => CreateNewImageInPcFolder(isT64: false));
             miNewT64 = new ToolStripMenuItem("Create Empty T64 Tape Image...", icoT64, (s, e) => CreateNewImageInPcFolder(isT64: true));
 
@@ -268,9 +275,9 @@ namespace Plus4Commander
                 miCopyCbmFile,
                 miPasteCbmFile,
                 miRenameFile,
-                miRenameImageHeader,
                 miDeleteVirtualFile,
                 miSepCreateImage,
+                miRenameImageHeader,
                 miNewD64,
                 miNewT64
             });
@@ -305,7 +312,7 @@ namespace Plus4Commander
                 miDeleteVirtualFile.Visible = isInsideVirtualImage;
                 miDeleteVirtualFile.Enabled = isInsideVirtualImage && hasCbmFileSelected;
 
-                miSepCreateImage.Visible = !isInsideVirtualImage;
+//                miSepCreateImage.Visible = !isInsideVirtualImage;
                 miNewD64.Visible = !isInsideVirtualImage;
                 miNewT64.Visible = !isInsideVirtualImage;
             };
@@ -1292,7 +1299,18 @@ namespace Plus4Commander
                 string bootPadding = " ";
                 string commandText;
 
-                if (currentDetectedType == Plus4ContentType.BasicProgram)
+                string ext = Path.GetExtension(activeImageFilePath).ToUpperInvariant();
+                bool isTape = ext == ".T64";
+
+                if (isTape)
+                {
+                    // Szalag: a Plus/4 alapeszköze az 1-es (kazetta). A DLOAD mindig lemezről (8-as eszköz) tölt,
+                    // ezért itt sima LOAD kell, gépi kódnál az 1-es eszközzel és a fájl saját címére töltve.
+                    commandText = currentDetectedType == Plus4ContentType.BasicProgram
+                        ? $"{bootPadding}LOAD\"{cbmName}\",1\n"
+                        : $"{bootPadding}LOAD\"{cbmName}\",1,1\n";
+                }
+                else if (currentDetectedType == Plus4ContentType.BasicProgram)
                 {
                     commandText = $"{bootPadding}DLOAD\"{cbmName}\"\n";
                 }
@@ -1305,8 +1323,7 @@ namespace Plus4Commander
 
                 CloseRunningYapeInstances();
 
-                string ext = Path.GetExtension(activeImageFilePath).ToUpperInvariant();
-                string mountArg = ext == ".T64"
+                string mountArg = isTape
                     ? $"/TAPE:\"{activeImageFilePath}\""
                     : $"/DISK8:\"{activeImageFilePath}\"";
 

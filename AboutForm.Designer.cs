@@ -59,9 +59,9 @@ namespace Plus4Commander
             lblVersion.ForeColor = Color.DimGray;
             lblVersion.Location = new Point(111, 48);
             lblVersion.Name = "lblVersion";
-            lblVersion.Size = new Size(166, 21);
+            lblVersion.Size = new Size(66, 21);
             lblVersion.TabIndex = 2;
-            lblVersion.Text = "Version 1.0   (2026.11)";
+            lblVersion.Text = "Version ";
             // 
             // lblDescription
             // 
@@ -70,7 +70,7 @@ namespace Plus4Commander
             lblDescription.Name = "lblDescription";
             lblDescription.Size = new Size(434, 131);
             lblDescription.TabIndex = 3;
-            lblDescription.Text = "Commodore 16 / Plus/4 .D64 and .T64 browser and PRG, USR, SEQ, REL file inspector.\r\nCheck the README.md for more information.\r\n\r\nArchitect: Bunny     Coding: Gemini 4\r\nLicense: GNU GPL";
+            lblDescription.Text = resources.GetString("lblDescription.Text");
             lblDescription.Click += lblDescription_Click;
             // 
             // btnClose
